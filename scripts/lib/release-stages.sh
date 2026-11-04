@@ -384,9 +384,16 @@ train_gates() { # train_gates <branch> <line> <stage>
     log "${gate}：等待 $branch 最新 commit ${tip:0:7} 的 ci 執行完成"
     gate_ok=0
     for ((i=1; i<=${CI_GATE_TRIES:-40}; i++)); do
-      st="$(gh run list --workflow ci.yml --branch "$branch" --commit "$tip" --limit 1 --json status,conclusion,databaseId \
-            --jq '.[0] | "\(.status)/\(.conclusion // "")/\(.databaseId)"' 2>/dev/null || true)"
-      [[ -z "$st" ]] && { warn "${tip:0:7} 尚無 ci 執行紀錄，等待中"; sleep "${CI_GATE_SLEEP:-15}"; continue; }
+      # A failed query (no permission, no repository, network) will not fix itself by waiting, so it
+      # stops the gate with gh's own error. Only a successful query that finds no run keeps waiting.
+      gh_err="$(mktemp)"
+      if ! st="$(gh run list --workflow ci.yml --branch "$branch" --commit "$tip" --limit 1 --json status,conclusion,databaseId \
+            --jq '.[0] | "\(.status)/\(.conclusion // "")/\(.databaseId)"' 2>"$gh_err")"; then
+        err_text="$(cat "$gh_err")"; rm -f "$gh_err"
+        die "${gate}無法查詢 ci 執行紀錄：${err_text:-gh run list 失敗}（查 gh 權限與 token；本機演練可用 CI_GATE=0 略過）"
+      fi
+      rm -f "$gh_err"
+      [[ -z "$st" || "$st" == "null//null" ]] && { warn "${tip:0:7} 尚無 ci 執行紀錄，等待中"; sleep "${CI_GATE_SLEEP:-15}"; continue; }
       case "$st" in
         completed/success/*) info "✓ ci run ${st##*/} 通過"; gate_ok=1; break ;;
         completed/*) rest="${st#completed/}"; die "${gate}未通過：ci run ${st##*/} 結論為 ${rest%%/*}（查 gh run view ${st##*/}）；修正後重跑，或以 CI_GATE=0 略過" ;;
