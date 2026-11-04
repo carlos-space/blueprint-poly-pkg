@@ -1,0 +1,36 @@
+{
+  "name": "blueprint-poly-pkg-facts",
+  "version": "0.0.0",
+  "description": "Facts for blueprint-poly-pkg: one component per unit",
+  "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/carlos-space/blueprint-poly-pkg.git",
+    "directory": "facts"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "fact-kit build",
+    "check": "fact-kit check"
+  },
+  "devDependencies": {
+    "blueprint-poly-sdk-facts": "workspace:*",
+    "blueprint-poly-sdk-py-facts": "workspace:*",
+    "blueprint-poly-shared-facts": "workspace:*",
+    "fact-kit": "^0.13.0",
+    "oxc-parser": "^0.155.0"
+  },
+  "exports": {
+    "./blueprint-poly-sdk/index.json": "./dist/blueprint-poly-sdk/index.json",
+    "./blueprint-poly-sdk/schemas/*": "./dist/blueprint-poly-sdk/schemas/*",
+    "./blueprint-poly-sdk-py/index.json": "./dist/blueprint-poly-sdk-py/index.json",
+    "./blueprint-poly-sdk-py/schemas/*": "./dist/blueprint-poly-sdk-py/schemas/*",
+    "./blueprint-poly-shared/index.json": "./dist/blueprint-poly-shared/index.json",
+    "./blueprint-poly-shared/schemas/*": "./dist/blueprint-poly-shared/schemas/*"
+  }
+}

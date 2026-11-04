@@ -1,0 +1,33 @@
+{
+  "name": "blueprint-poly-sdk",
+  "version": "0.0.0",
+  "description": "TypeScript SDK of blueprint-poly-pkg",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "node --test src/index.test.ts"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "typescript": "^7.0.2"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/carlos-space/blueprint-poly-pkg.git",
+    "directory": "packages/blueprint-poly-sdk"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

@@ -1,0 +1,229 @@
+name: ci
+
+# Tiered by trigger (docs/ci.md): a pull request gets the fast, affected-only set and blocks the
+# merge; a push to main or to a train runs the full tree, because those are the points where
+# release-please reads history; a train additionally runs the assembled-system e2e, which GA gates on.
+#
+# Whether a run checks anything is decided by content, in the scope job (scripts/ci/ci-scope.sh),
+# not by path filters here: every push gets a run, so "the latest ci run" is always the run of the
+# tip, which is what the release gates read. A run whose source is unchanged since the branch's last
+# green run skips its jobs and still concludes success.
+on:
+  pull_request:
+  # 手動派送一律全部執行，用來在不推 commit 的情況下重跑一次
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+      - "release/**"
+      # 合回分支只用來開回 main 的 PR，PR 那次執行就是它的檢查；push 再跑一次是同一個 SHA
+      - "!release/**--to-main"
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  # release-please opens its PRs with GITHUB_TOKEN. GitHub deliberately does not run workflows for
+  # those PRs (recursion guard), so they sit as "Action required" forever. Their content is generated
+  # (version bumps + changelog) and CI already ran on the base branch, so skip them explicitly.
+  #
+  # The PR title and body check lives in pr-message.yml, which also runs when the PR is edited. It is
+  # not here because an edited run of this workflow would either rebuild for a text change or record
+  # skipped static/build-test checks; gh pr checks keeps only the newest check per name, workflow and
+  # event, so a skipped one would hide an earlier failure from the merge gate.
+  #
+  # Scope decides whether anything runs (run) and whether the macOS job has work (native). Both come
+  # from one diff against the same base, so the path rules live in one place: scripts/ci/ci-scope.conf.
+  # It runs only git and gh, so it does not use setup-workspace.
+  scope:
+    if: github.event_name != 'pull_request' || !startsWith(github.head_ref, 'release-please--')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: read # gh run list: the branch's last successful ci run
+      pull-requests: read # commits/<sha>/pulls: the pull request a push came from
+    outputs:
+      run: ${{ steps.s.outputs.run }}
+      native: ${{ steps.s.outputs.native }}
+      facts: ${{ steps.s.outputs.facts }}
+      policy: ${{ steps.s.outputs.policy }}
+      e2e: ${{ steps.s.outputs.e2e }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - id: s
+        run: bash scripts/ci/ci-scope.sh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT: ${{ github.event_name }}
+          BRANCH: ${{ github.ref_name }}
+          BASE_REF: ${{ github.base_ref }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          REPO: ${{ github.repository }}
+
+  static:
+    needs: scope
+    if: needs.scope.outputs.run == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup-workspace
+      - name: Lint (oxlint, whole tree — it is fast enough not to need scoping)
+        run: pnpm lint
+      - name: Shell syntax
+        run: find scripts -name '*.sh' -print0 | xargs -0 -n1 bash -n
+      # 政策檔不符 schema 時，發布腳本要到開線才報錯；放在 static 讓每個 PR 與 main 都先擋下
+      - name: 政策檔符合 schema
+        if: needs.scope.outputs.policy == 'true'
+        run: bash scripts/ci/check-release-policy-schema.sh
+      # bash -n 抓不到：$var 後面直接接中文時，bash 把非 ASCII 位元組讀進變數名，set -u 下執行到才報未綁定。改寫成 ${var}
+      - name: Shell 變數名後不接非 ASCII
+        run: |
+          if grep -rnP --include='*.sh' '\$[A-Za-z_][A-Za-z0-9_]*[^\x00-\x7F]' scripts; then
+            echo "::error::上面幾行的變數後面直接接非 ASCII 字元，改寫成 \${var}"; exit 1
+          fi
+
+  build-test:
+    needs: scope
+    if: needs.scope.outputs.run == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: ./.github/actions/setup-workspace
+      - id: aff
+        name: Affected set (PR only; push runs everything)
+        run: echo "since=$(bash scripts/ci/affected.sh)" >> "$GITHUB_OUTPUT"
+      # tsc is the type check: build fails on a type error, so no separate typecheck step
+      # (one would need every upstream package's dist/*.d.ts, i.e. a build anyway).
+      - name: Build (type-checks via tsc; affected set plus its upstream closure)
+        run: bash scripts/ci/run-affected.sh build
+        env:
+          AFFECTED_SINCE: ${{ steps.aff.outputs.since }}
+          WITH_DEPS: "1"
+      - name: Unit tests
+        run: bash scripts/ci/run-affected.sh test
+        env:
+          AFFECTED_SINCE: ${{ steps.aff.outputs.since }}
+      # Units that are not pnpm packages (Python, Rust, Go), from scripts/ci/units.json: only the affected ones on
+      # a pull request, all of them on a push, like the pnpm units above. Swift units are built by the native job.
+      - id: langs
+        name: Languages of the other units
+        run: echo "langs=$(bash scripts/ci/run-units.sh langs)" >> "$GITHUB_OUTPUT"
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        if: contains(steps.langs.outputs.langs, 'python')
+        with:
+          python-version: "3.12"
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        if: contains(steps.langs.outputs.langs, 'rust')
+        with:
+          toolchain: stable
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        if: contains(steps.langs.outputs.langs, 'go')
+        with:
+          go-version: "1.24"
+      - name: Build (Python, Rust and Go units)
+        run: bash scripts/ci/run-units.sh build
+        env:
+          AFFECTED_SINCE: ${{ steps.aff.outputs.since }}
+      - name: Test (Python, Rust and Go units)
+        run: bash scripts/ci/run-units.sh test
+        env:
+          AFFECTED_SINCE: ${{ steps.aff.outputs.since }}
+
+  # The facts packages (facts/) against the code they describe. Three things fail here: a fact-kit rule
+  # (fact-kit check on every facts package; a component package's implDirs makes an implementation that
+  # imports the aggregate fail with impl-imports-facts), a fact whose since is ahead of describes (on a
+  # release branch the version of the open Release PR is passed as --train, and the rows of those components are
+  # pinned in the checkout first), and a component whose built
+  # describes differs from .release-please-manifest.json (a literal version in index.ts instead of describesOf).
+  # Scope decides when it runs, like the other jobs: facts/ and every unit directory count as source.
+  # The job id and the step names are referenced from other repositories' docs; rename them only together.
+  facts:
+    needs: scope
+    if: needs.scope.outputs.run == 'true' && needs.scope.outputs.facts == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read # release-train.sh reads the Release PR branch with git fetch, which needs no pull-requests scope
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup-workspace
+      # The facts of a release branch are pinned to the next version before the Release PR merges, while describes
+      # still reads the manifest. A push to a release branch and a pull request into one both read the Release PR of
+      # that release branch. Other branches have no Release PR and set nothing.
+      # The checkout keeps no token, because the later steps build and run code from the pull request. Only this
+      # step hands the read-only token to git, through GIT_CONFIG_* in its own environment, for the git fetch of the
+      # Release PR branch.
+      - name: Train of the open Release PR
+        if: startsWith(github.ref, 'refs/heads/release/') || startsWith(github.base_ref, 'release/')
+        run: |
+          export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0="http.${GITHUB_SERVER_URL}/.extraheader"
+          GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 | tr -d '\n')"
+          export GIT_CONFIG_VALUE_0
+          bash scripts/ci/release-train.sh >> "$GITHUB_ENV"
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BRANCH: ${{ github.base_ref || github.ref_name }}
+      # Pins the next rows of the components in the train, in this checkout only (nothing is committed), the way
+      # merge-release-pr.sh pins them before the Release PR merges. Without it check reports train-next.
+      - name: Pin the train in the checkout
+        if: startsWith(github.ref, 'refs/heads/release/') || startsWith(github.base_ref, 'release/')
+        run: bash scripts/ci/pin-train.sh
+      - name: fact-kit check (every facts package)
+        run: bash scripts/ci/check-facts.sh
+      - name: describes follows the manifest
+        run: bash scripts/ci/check-facts-describes.sh
+
+  # Native lane. Deciding whether there is native work must not itself need a macOS runner: only two
+  # macOS VMs can exist on the host, they are shared with other repositories, and the GA gate waits on
+  # this run. So the scope job decides on linux and the macOS job is only requested when it has
+  # something to build. 只做編譯；這個 job 不跑時沒有任何檢查被略過。
+  native:
+    needs: scope
+    if: needs.scope.outputs.native == 'true'
+    runs-on: macos-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Toolchain
+        run: xcodebuild -version && swift --version | head -1
+      - name: Build and test (the SwiftPM packages of CI_SCOPE_NATIVE_UNITS)
+        run: bash scripts/ci/native-build.sh
+
+  # Assembled-system tests against built artifacts. Only on a train: this is the stabilisation
+  # window, and finalize-release.sh --phase ga refuses to proceed until this run is green.
+  e2e:
+    if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && startsWith(github.ref, 'refs/heads/release/') && needs.scope.outputs.e2e == 'true'
+    needs: [scope, build-test]
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup-workspace
+      - run: pnpm -r build
+      - name: E2E on dist/
+        run: pnpm test:e2e

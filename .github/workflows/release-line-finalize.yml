@@ -1,0 +1,83 @@
+name: release-line-finalize
+
+# vX.Y.Z tag = release train closed. Verifies every unit tag, publishes the Snapshot as a
+# GitHub Release, and simulates the governance sync (Release Issue close / Project Status=Done).
+on:
+  push:
+    tags: ["v[0-9]*"]
+  # Manual entry point so a finalize can be re-verified after a fix without re-tagging.
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "product tag, e.g. v1.1.1"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+  issues: read
+  pull-requests: read
+
+defaults:
+  run:
+    shell: bash
+
+concurrency:
+  group: finalize-${{ inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  finalize:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.tag || github.ref_name }}
+          fetch-depth: 0
+      - uses: ./.github/actions/setup-workspace
+        with:
+          node: "false"
+          restore-from-default: "scripts"
+
+      - name: Snapshot with tag check
+        id: snap
+        run: |
+          ref="${{ inputs.tag || github.ref_name }}"
+          v="${ref#v}"
+          prev="$(git tag --list 'v[0-9]*' --sort=-v:refname | awk -v c="$ref" 'f{print;exit} $0==c{f=1}')"
+          echo "comparing against ${prev:-（無前一個產品版）}"
+          bash scripts/release/snapshot.sh --product "$v" --check-tags ${prev:+--since "$prev"} > snapshot.md
+          cat snapshot.md >> "$GITHUB_STEP_SUMMARY"
+          if grep -q '✗ missing' snapshot.md; then echo "missing unit tags" >&2; exit 1; fi
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+      - name: Product GitHub Release (notes = Snapshot)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "${{ inputs.tag || github.ref_name }}" --title "${{ inputs.tag || github.ref_name }}" --notes-file snapshot.md || echo "release exists"
+      # 治理同步：這一版的 release PR 已合回 main，排入這一版（label release:vX.Y.Z）的 Issue 全部關閉。
+      # 功能 Issue 由功能 PR 的 Closes 關閉，staging 修補只寫 Refs，由 release PR 集中 Closes。GitHub
+      # 在 commit 進入預設分支後才非同步關閉 Issue，所以仍開著的 Issue 會重查幾次再判定。
+      - name: Governance sync
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          v="${{ steps.snap.outputs.version }}"
+          line="${v%.*}"
+          fail=0
+          {
+            echo "### governance sync"
+            pr="$(gh pr list --state merged --base main --head "release/v${line}--to-main" --limit 20 --json number,title \
+              --jq ".[] | select(.title | contains(\"product v${v} \")) | \"#\\(.number) \\(.title)\"" | head -1)"
+            if [ -n "$pr" ]; then echo "- ✓ release PR ${pr}"; else echo "- ✗ 找不到合回 main 的 release PR（head release/v${line}--to-main，標題含 product v${v}）"; fail=1; fi
+            open=""
+            for i in 1 2 3 4 5 6; do
+              open="$(gh issue list --label "release:v${v}" --state open --json number --jq '[.[].number | "#\(.)"] | join(", ")')"
+              [ -z "$open" ] && break
+              sleep 10
+            done
+            total="$(gh issue list --label "release:v${v}" --state all --limit 500 --json number --jq length)"
+            if [ -z "$open" ]; then echo "- ✓ release:v${v} 的 Issue ${total} 個全部關閉"
+            else echo "- ✗ release:v${v} 仍有 Issue 未關閉：${open}"; fail=1; fi
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit $fail

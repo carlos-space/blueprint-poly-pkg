@@ -1,0 +1,17 @@
+{
+  "name": "blueprint-poly-shared-facts",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Facts about blueprint-poly-shared. Private workspace package, published through blueprint-poly-pkg-facts.",
+  "type": "module",
+  "scripts": {
+    "build": "fact-kit build",
+    "check": "fact-kit check"
+  },
+  "devDependencies": {
+    "fact-kit": "^0.13.0"
+  },
+  "exports": {
+    "./blueprint-poly-shared/index.json": "./dist/blueprint-poly-shared/index.json"
+  }
+}

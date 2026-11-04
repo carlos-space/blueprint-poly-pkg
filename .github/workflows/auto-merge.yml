@@ -1,0 +1,123 @@
+name: auto-merge
+
+# Merges the pull requests that carry the auto-merge label once the required checks have passed. Every repository
+# has this same workflow, because the free plan gives a private repository no platform auto-merge and no ruleset.
+# It runs when the label is added and when ci or pr-message finishes, and each run reads the checks of the latest
+# head commit again (scripts/merge/decide.mjs). The required checks and the label are in scripts/merge/merge-config.json.
+#
+# pull_request_target runs this file and the scripts from the base branch, never from the pull request, so the
+# App token is not handed to code of the pull request. A pull request from a fork is never merged.
+# The names of the GitHub App variable and secret are written in when the repository is composed.
+on:
+  pull_request_target:
+    types: [labeled]
+  workflow_run:
+    workflows: [ci, pr-message]
+    types: [completed]
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+concurrency:
+  group: auto-merge-${{ github.event.pull_request.number || github.event.workflow_run.pull_requests[0].number || github.run_id }}
+  cancel-in-progress: false
+
+jobs:
+  decide:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+      checks: read
+      statuses: read
+    outputs:
+      action: ${{ steps.d.outputs.action }}
+      pr: ${{ steps.d.outputs.pr }}
+      sha: ${{ steps.d.outputs.sha }}
+      line: ${{ steps.d.outputs.line }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup-workspace
+        with:
+          install: "false"
+      - id: d
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number || github.event.workflow_run.pull_requests[0].number }}
+        run: |
+          if [[ -z "$PR_NUMBER" ]]; then
+            echo "action=skip" >> "$GITHUB_OUTPUT"; echo "no pull request belongs to this event"; exit 0
+          fi
+          fields=number,state,isDraft,headRefOid,headRefName,baseRefName,isCrossRepository,labels,author,latestReviews
+          mkdir -p "$RUNNER_TEMP/merge"
+          checked_sha="$(gh pr view "$PR_NUMBER" --json headRefOid --jq .headRefOid)"
+          # gh pr checks exits 1 for a failed check and 8 for a pending one; the decision reads both from the output
+          rc=0; gh pr checks "$PR_NUMBER" --json name,bucket > "$RUNNER_TEMP/merge/checks.json" || rc=$?
+          (( rc == 0 || rc == 1 || rc == 8 )) || { echo "::error::gh pr checks exited $rc"; exit 1; }
+          [[ -s "$RUNNER_TEMP/merge/checks.json" ]] || echo '[]' > "$RUNNER_TEMP/merge/checks.json"
+          gh pr diff "$PR_NUMBER" --name-only | jq -R . | jq -s . > "$RUNNER_TEMP/merge/files.json"
+          gh pr view "$PR_NUMBER" --json "$fields" \
+            | jq --arg sha "$checked_sha" --slurpfile checks "$RUNNER_TEMP/merge/checks.json" --slurpfile files "$RUNNER_TEMP/merge/files.json" \
+                '{pr: ., checkedSha: $sha, checks: $checks[0], changedFiles: $files[0]}' > "$RUNNER_TEMP/merge/input.json"
+          node scripts/merge/decide.mjs --input "$RUNNER_TEMP/merge/input.json" | tee "$RUNNER_TEMP/merge/decision.json"
+          {
+            echo "action=$(jq -r .action "$RUNNER_TEMP/merge/decision.json")"
+            echo "pr=$(jq -r '.pr // empty' "$RUNNER_TEMP/merge/decision.json")"
+            echo "sha=$(jq -r '.sha // empty' "$RUNNER_TEMP/merge/decision.json")"
+            echo "line=$(jq -r '.line // empty' "$RUNNER_TEMP/merge/decision.json")"
+          } >> "$GITHUB_OUTPUT"
+          jq -r '"### auto-merge\n- action: `\(.action)`\n- \(.reason)"' "$RUNNER_TEMP/merge/decision.json" >> "$GITHUB_STEP_SUMMARY"
+
+  merge:
+    needs: decide
+    if: needs.decide.outputs.action == 'merge'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - id: app-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          client-id: ${{ vars.RELEASE_PLEASE_APP_CLIENT_ID }}
+          private-key: ${{ secrets.RELEASE_PLEASE_APP_PRIVATE_KEY }}
+      # --match-head-commit makes gh refuse the merge when a commit was pushed after the checks were read
+      - name: Squash-merge the pull request
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          GH_REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ needs.decide.outputs.pr }}
+          HEAD_SHA: ${{ needs.decide.outputs.sha }}
+        run: gh pr merge "$PR_NUMBER" --squash --match-head-commit "$HEAD_SHA" --delete-branch
+
+  merge-release-pr:
+    needs: decide
+    if: needs.decide.outputs.action == 'merge-release-pr'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - id: app-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          client-id: ${{ vars.RELEASE_PLEASE_APP_CLIENT_ID }}
+          private-key: ${{ secrets.RELEASE_PLEASE_APP_PRIVATE_KEY }}
+      # merge-release-pr.sh pins the facts on the release branch and pushes that commit, so it needs the branch
+      # checked out with a token that can push
+      - uses: actions/checkout@v7
+        with:
+          ref: release/v${{ needs.decide.outputs.line }}
+          fetch-depth: 0
+          token: ${{ steps.app-token.outputs.token }}
+      - uses: ./.github/actions/setup-workspace
+      - name: Merge the Release PR
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          GH_REPO: ${{ github.repository }}
+          LINE: ${{ needs.decide.outputs.line }}
+        run: bash scripts/release/merge-release-pr.sh --line "$LINE" --yes

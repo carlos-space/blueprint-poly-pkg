@@ -1,0 +1,5 @@
+{
+  "squash": true,
+  "deleteBranchOnMerge": true,
+  "retentionDays": 7
+}

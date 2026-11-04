@@ -1,0 +1,20 @@
+{
+  "name": "blueprint-poly-pkg",
+  "version": "0.0.0",
+  "private": true,
+  "description": "blueprint-poly-pkg, a demo repository composed by blueprint",
+  "packageManager": "pnpm@12.3.4",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "build": "pnpm -r build",
+    "test": "pnpm -r test",
+    "lint:commit": "bash scripts/ci/check-pr-title.sh",
+    "test:e2e": "node --test tests/e2e/*.test.mjs",
+    "lint": "oxlint -c .oxlintrc.json ."
+  },
+  "devDependencies": {
+    "oxlint": "1.82.0"
+  }
+}
