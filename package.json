@@ -15,6 +15,10 @@
     "lint": "oxlint -c .oxlintrc.json ."
   },
   "devDependencies": {
-    "oxlint": "1.82.0"
+    "@types/node": "^22.20.1",
+    "ajv-cli": "5.0.0",
+    "oxlint": "1.82.0",
+    "semver": "^7.8.5",
+    "typescript": "^7.0.2"
   }
 }

@@ -26,6 +26,7 @@ on:
       - "libs/**"
       - "facts/**"
       - "services/**"
+      - "infra/**"
       - "docs/**"
       - "release-please-config.json"
       - ".release-please-manifest.json"
@@ -84,16 +85,16 @@ jobs:
             echo "- paths_released: ${{ steps.rp.outputs.paths_released }}"
           } >> "$GITHUB_STEP_SUMMARY"
 
-      # apps/* 與 services/* 的 prerelease → 依階段部署到對應環境（deploy-prerelease.yml，階段與環境對應見 scripts/lib/release-stages.sh）。正式版不在此 dispatch：production 由產品 tag 統一觸發。
+      # apps/*、services/* 與 infra/* 的 prerelease → 依階段部署（infra 是套用）到對應環境（deploy-prerelease.yml，階段與環境對應見 scripts/lib/release-stages.sh）。正式版不在此 dispatch：production 由產品 tag 統一觸發。
       # 有 App token 時 tag 自己會觸發 deploy-prerelease，這一步就不需要，跑了還會變成部署兩次。
-      - name: Dispatch prerelease deploy for released apps and services (無 App token 時才需要)
+      - name: Dispatch prerelease deploy for released apps, services and infra units (無 App token 時才需要)
         if: steps.rp.outputs.releases_created == 'true' && vars.RELEASE_PLEASE_APP_CLIENT_ID == ''
         env:
           GH_TOKEN: ${{ github.token }}
           PATHS: ${{ steps.rp.outputs.paths_released }}
           OUTPUTS: ${{ toJSON(steps.rp.outputs) }}
         run: |
-          for p in $(echo "$PATHS" | jq -r '.[] | select(startswith("apps/") or startswith("services/"))'); do
+          for p in $(echo "$PATHS" | jq -r '.[] | select(startswith("apps/") or startswith("services/") or startswith("infra/"))'); do
             tag=$(echo "$OUTPUTS" | jq -r --arg k "${p}--tag_name" '.[$k] // empty')
             if [[ -z "$tag" ]]; then echo "no tag_name output for $p, skipping"; continue; fi
             if [[ "$tag" != *-* ]]; then echo "$tag 為正式版，production 由產品 tag 統一觸發，略過"; continue; fi

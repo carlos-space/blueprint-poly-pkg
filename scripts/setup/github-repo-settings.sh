@@ -14,8 +14,12 @@
 #     remote branches, so this setting is what removes the remote branch.
 #   artifact-and-log-retention days
 #     Applies only to what is created afterwards, so set it before the first real run.
+#   auto-merge label
+#     decide.mjs skips every pull request that has no auto-merge label, so without it the auto merge never
+#     takes effect. The label is created (or updated with --force) when it is missing or its color or
+#     description differ.
 #
-# The values of squash, delete-branch and days come from github-repo-settings.json next to this script,
+# The values of squash, delete-branch, days and the label come from github-repo-settings.json next to this script,
 # a copy of blueprint.merge.method and blueprint.retention.repository-days (tests/repo-settings.test.mjs
 # fails when they drift).
 #
@@ -41,6 +45,10 @@ settings="$(dirname "$0")/github-repo-settings.json"
 squash="$(jq -r '.squash' "$settings")"
 delete_branch="$(jq -r '.deleteBranchOnMerge' "$settings")"
 days="$(jq -r '.retentionDays' "$settings")"
+label="$(jq -r '.autoMergeLabel' "$settings")"
+label_color="$(jq -r '.autoMergeLabelColor' "$settings")"
+label_desc="$(jq -r '.autoMergeLabelDescription' "$settings")"
+[[ -n "$label" && "$label" != null && "$label_color" =~ ^[0-9a-fA-F]{6}$ && -n "$label_desc" && "$label_desc" != null ]] || die "invalid $settings"
 [[ "$squash" == true && "$delete_branch" == true && "$days" =~ ^[0-9]+$ ]] || die "invalid $settings"
 
 # field=value pairs of the merge settings; -F makes true/false booleans, -f keeps strings
@@ -56,6 +64,7 @@ apply_repo() { # apply_repo <owner/repo>; returns 1 when a request failed
   if (( DRY_RUN )); then
     external "github.com/$repo" gh api -X PATCH "repos/$repo" "${merge_args[@]}" || return 1
     external "github.com/$repo" gh api -X PUT "repos/$repo/actions/permissions/artifact-and-log-retention" -F "days=$days" || return 1
+    external "github.com/$repo" gh label create "$label" -R "$repo" --color "$label_color" --description "$label_desc" --force || return 1
     return 0
   fi
   current="$(gh api "repos/$repo")" || return 1
@@ -70,6 +79,18 @@ apply_repo() { # apply_repo <owner/repo>; returns 1 when a request failed
   else
     external "github.com/$repo" gh api -X PUT "repos/$repo/actions/permissions/artifact-and-log-retention" -F "days=$days" || return 1
   fi
+  local lab_err lab_json
+  lab_err="$(mktemp)"
+  if lab_json="$(gh api "repos/$repo/labels/$label" 2>"$lab_err")"; then
+    if jq -e --arg c "$(tr 'A-F' 'a-f' <<<"$label_color")" --arg d "$label_desc" '(.color | ascii_downcase) == $c and .description == $d' <<<"$lab_json" >/dev/null; then
+      info "標籤 ${label} 已存在且相同，不送"
+      rm -f "$lab_err"; return 0
+    fi
+  elif ! grep -q 'HTTP 404' "$lab_err"; then
+    cat "$lab_err" >&2; rm -f "$lab_err"; return 1
+  fi
+  rm -f "$lab_err"
+  external "github.com/$repo" gh label create "$label" -R "$repo" --color "$label_color" --description "$label_desc" --force || return 1
 }
 
 failed=()
