@@ -5,10 +5,10 @@
 # fails after the release (and its tag) was created (observed 2026-09-09 as a transient GitHub
 # GraphQL error) the dispatch step is skipped, and nothing retries: tags created with GITHUB_TOKEN
 # raise no push event. This script is idempotent, so release-please.yml runs it after every run,
-# including failed ones: it reads the manifest on the current branch, and for each app or service with a
+# including failed ones: it reads the manifest on the current branch, and for each app, service or infra unit with a
 # prerelease version whose tag exists but has no deploy-prerelease run, dispatches one. A tag with nothing to
 # deploy at its stage (no environment declared for the unit, scripts/deploy/route-tag.sh) is skipped, not
-# dispatched. A repository without apps/ or services/ has nothing to look at, so it never reaches route-tag.sh.
+# dispatched. A repository without apps/, services/ or infra/ units has nothing to look at, so it never reaches route-tag.sh.
 #
 # usage: ensure-stage-deploys.sh   (env: GH_TOKEN)
 set -euo pipefail
@@ -17,7 +17,7 @@ cd "$(git rev-parse --show-toplevel)"
 jq -r --slurpfile cfg release-please-config.json '
   ($cfg[0].packages) as $pkgs
   | to_entries[]
-  | select(.key | startswith("apps/") or startswith("services/"))
+  | select(.key | startswith("apps/") or startswith("services/") or startswith("infra/"))
   | select(.value | test("-"))
   | "\($pkgs[.key].component // (.key | split("/")[1])) \(.value)"
 ' .release-please-manifest.json | while read -r unit ver; do

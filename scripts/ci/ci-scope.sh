@@ -13,6 +13,10 @@
 # the same tree and a green ci run. Only enable it where the pull request runs the same checks as the
 # push; a pull request that checks only the affected units says nothing about the full tree.
 #
+# Scope looks at source changes only. What a repository has (facts/, release-policy.json, tests/e2e/) is not an
+# output: a job with no work of its own says so and concludes success, and which jobs a repository has follows from
+# its roles when ci.yml is composed.
+#
 # This file is the same in every repository that adopts the flow; what differs lives in
 # scripts/ci/ci-scope.conf.
 #
@@ -25,15 +29,8 @@ CI_SCOPE_NON_SOURCE=() CI_SCOPE_NATIVE=() CI_SCOPE_NATIVE_EXCLUDE=() CI_SCOPE_NA
 # shellcheck source=scripts/ci/ci-scope.conf
 source scripts/ci/ci-scope.conf
 
-# What a repository has decides which of the jobs behind `run` have work: the facts job needs facts/, the policy
-# check needs release-policy.json, the e2e job needs tests/e2e/. A job without work is skipped, and a check skipped
-# by scope counts as passed (docs/ci.md, 時機表). The repository tree decides, so no list of repositories is kept here.
-has_facts=false; [[ -d facts ]] && has_facts=true
-has_policy=false; [[ -f release-policy.json ]] && has_policy=true
-has_e2e=false; compgen -G 'tests/e2e/*.test.mjs' >/dev/null && has_e2e=true
-
 decide() { # decide <run> <native> <reason>
-  printf 'run=%s\nnative=%s\nfacts=%s\npolicy=%s\ne2e=%s\n' "$1" "$2" "$has_facts" "$has_policy" "$has_e2e" >> "${GITHUB_OUTPUT:-/dev/null}"
+  printf 'run=%s\nnative=%s\n' "$1" "$2" >> "${GITHUB_OUTPUT:-/dev/null}"
   printf '%s\n' "$3"
   printf '### ci scope\n- run: `%s`, native: `%s`\n- %s\n' "$1" "$2" "$3" >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
   exit 0

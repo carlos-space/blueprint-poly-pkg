@@ -31,6 +31,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
+      actions: read
       contents: read
       pull-requests: read
       checks: read
@@ -62,7 +63,8 @@ jobs:
           # gh pr checks exits 1 for a failed check and 8 for a pending one; the decision reads both from the output
           rc=0; gh pr checks "$PR_NUMBER" --json name,bucket > "$RUNNER_TEMP/merge/checks.json" || rc=$?
           (( rc == 0 || rc == 1 || rc == 8 )) || { echo "::error::gh pr checks exited $rc"; exit 1; }
-          [[ -s "$RUNNER_TEMP/merge/checks.json" ]] || echo '[]' > "$RUNNER_TEMP/merge/checks.json"
+          # an empty or non-array output means the checks could not be read; it must not reach the decision as "no check ran"
+          jq -e 'type == "array"' "$RUNNER_TEMP/merge/checks.json" > /dev/null || { echo "::error::gh pr checks exited $rc and printed no JSON array of checks"; exit 1; }
           gh pr diff "$PR_NUMBER" --name-only | jq -R . | jq -s . > "$RUNNER_TEMP/merge/files.json"
           gh pr view "$PR_NUMBER" --json "$fields" \
             | jq --arg sha "$checked_sha" --slurpfile checks "$RUNNER_TEMP/merge/checks.json" --slurpfile files "$RUNNER_TEMP/merge/files.json" \
