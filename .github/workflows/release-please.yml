@@ -27,6 +27,7 @@ on:
       - "facts/**"
       - "services/**"
       - "infra/**"
+      - "ops/**"
       - "docs/**"
       - "release-please-config.json"
       - ".release-please-manifest.json"
