@@ -16,7 +16,8 @@
 //          a review; empty or missing means no pull request needs one here. syncPr is { author, branch }: the
 //          pull request that blueprint opens in a demo repository (blueprint.sync.pull-request), which needs no review.
 //   pr     also needs author ({ login, is_bot }) and latestReviews ([{ state }]) from `gh pr view --json`.
-// Output: one JSON line { action, reason, ... }. action is "merge", "merge-release-pr" or "skip".
+// Output: one JSON line { action, reason, ... }. action is "merge", "merge-release-pr" or "skip". A skip because a
+// required check failed also lists those checks in failed.
 // Exit status: 0 whenever a decision was made, 2 when the input or the config is unusable.
 import { readFileSync } from "node:fs";
 import { matchesGlob, resolve } from "node:path";
@@ -77,7 +78,7 @@ export function decide({ pr, checkedSha, checks = [], changedFiles = [] }, confi
     if (state === "fail") failed.push(name);
     else if (state === "pending") pending.push(name);
   }
-  if (failed.length > 0) return skip(`required check failed: ${failed.join(", ")}`, { pr: number });
+  if (failed.length > 0) return skip(`required check failed: ${failed.join(", ")}`, { pr: number, failed });
   if (pending.length > 0) return skip(`required check still running: ${pending.join(", ")}`, { pr: number });
   if (missing.length > 0) return skip(`required check has not run: ${missing.join(", ")}`, { pr: number });
 
