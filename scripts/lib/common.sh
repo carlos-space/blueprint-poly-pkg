@@ -139,8 +139,17 @@ unit_component() { # unit_component packages/cli -> mainflow; the folder name wh
 }
 
 # whether the unit has shipped before: release-please only applies its versioning strategy on top of a
-# previous release; without one it takes initial-version verbatim (1.0.0 when unset)
-unit_released() { [[ -n "$(git tag --list "$1/v*" | head -1)" ]]; }
+# previous release; without one it takes initial-version verbatim (1.0.0 when unset).
+# The answer comes from the tags on origin, not the local ones: fetching tags never deletes a tag that was
+# removed on the remote, so a local tag can outlive the release it stood for. When ls-remote fails (network,
+# permission, credentials) the script stops and prints git's error; "no tag" must never be a guess.
+# Call it in the shell itself, not in $(...), so the stop ends the script.
+unit_released() {
+  local out
+  out="$(git ls-remote --tags origin "refs/tags/$1/v*" 2>&1)" \
+    || die "查遠端 tag 失敗，無法判斷 $1 發過版沒有（git ls-remote --tags origin）：$out"
+  [[ -n "$out" ]]
+}
 
 manifest_version() { jq -r --arg p "$1" '.[$p] // empty' "$MANIFEST"; }
 

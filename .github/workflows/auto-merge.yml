@@ -61,7 +61,12 @@ jobs:
           mkdir -p "$RUNNER_TEMP/merge"
           checked_sha="$(gh pr view "$PR_NUMBER" --json headRefOid --jq .headRefOid)"
           # gh pr checks exits 1 for a failed check and 8 for a pending one; the decision reads both from the output
-          rc=0; gh pr checks "$PR_NUMBER" --json name,bucket > "$RUNNER_TEMP/merge/checks.json" || rc=$?
+          rc=0; gh pr checks "$PR_NUMBER" --json name,bucket > "$RUNNER_TEMP/merge/checks.json" 2> "$RUNNER_TEMP/merge/checks.err" || rc=$?
+          cat "$RUNNER_TEMP/merge/checks.err" >&2
+          # a pull request without any check yet: exit 1, nothing on stdout, "no checks reported" on stderr; the decision reads that as "has not run"
+          if (( rc == 1 )) && [[ ! -s "$RUNNER_TEMP/merge/checks.json" ]] && grep -q 'no checks reported on the' "$RUNNER_TEMP/merge/checks.err"; then
+            printf '[]\n' > "$RUNNER_TEMP/merge/checks.json"
+          fi
           (( rc == 0 || rc == 1 || rc == 8 )) || { echo "::error::gh pr checks exited $rc"; exit 1; }
           # an empty or non-array output means the checks could not be read; it must not reach the decision as "no check ran"
           jq -e 'type == "array"' "$RUNNER_TEMP/merge/checks.json" > /dev/null || { echo "::error::gh pr checks exited $rc and printed no JSON array of checks"; exit 1; }
