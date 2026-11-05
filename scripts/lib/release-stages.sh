@@ -96,6 +96,20 @@ unit_base_version() {
 # the base itself at ga, <base>-<stage>.1 otherwise
 stage_initial_version() { if [[ "$2" == ga ]]; then printf '%s\n' "$1"; else printf '%s\n' "$1-$2.1"; fi; }
 
+# unit_release_type <path> [<config file>] → the release-type of a config entry (node when it sets none)
+unit_release_type() { jq -r --arg p "$1" '.packages[$p]["release-type"] // "node"' "${2:-$CONFIG}"; }
+
+# first_release_needs_release_as <unit> <release-type> <stage> → succeeds when the unit's first release must be
+# pinned with a Release-As commit. release-please's python and rust strategies return 0.1.0 for a unit with no
+# previous release and never read initial-version (src/strategies/python.ts:200-202, rust.ts:133-134), so the
+# prerelease suffix of the first version only comes from Release-As (src/strategies/base.ts:543-573). "No previous
+# release" is read from the tags (unit_released), not from the manifest, which keeps its version after a tag is
+# deleted. A unit whose first stage is ga ships 0.1.0 as it is and needs none.
+first_release_needs_release_as() {
+  case "$2" in python|rust) ;; *) return 1 ;; esac
+  [[ "$3" != ga ]] && ! unit_released "$1"
+}
+
 # stages_union <unit>... → the stages any of the units walks, in stage order, one per line
 # The aggregate packages (aggregate_unit) follow the line and do not set it, so they are left out; a train
 # of nothing but aggregates counts its own stages.
@@ -429,7 +443,7 @@ train_release_ga() { # train_release_ga <branch>
 # shipped yet only has its config changed, and its first version lands in the new stage. Units whose
 # stage stays put are left alone. The config change is one more commit. Under DRY_RUN it only lists the moves.
 train_enter_stage() { # train_enter_stage <branch> <target>
-  local branch="$1" target="$2" u p cur old new next id map='{}' entry line base
+  local branch="$1" target="$2" u p cur old new next id map='{}' entry line base first
   local -a units=() entering=()
   while IFS= read -r u; do [[ -n "$u" ]] && units+=("$u"); done < <(train_boarded_units)
   line="${branch#release/v}"
@@ -443,12 +457,19 @@ train_enter_stage() { # train_enter_stage <branch> <target>
     map="$(jq -c --arg p "$p" --arg s "$new" '. + {($p): $s}' <<<"$map")"
     if [[ -z "$old" ]]; then
       entry="$(git show "origin/main:$CONFIG" | jq -c --arg p "$p" '.packages[$p]')"
+      first=""
       if ! unit_released "$u"; then
         base="$(jq -r '."initial-version" // empty' <<<"$entry")"
-        entry="$(jq -c --arg i "$(stage_initial_version "${base:-${line}.0}" "$new")" '."initial-version" = $i' <<<"$entry")"
+        first="$(stage_initial_version "${base:-${line}.0}" "$new")"
+        entry="$(jq -c --arg i "$first" '."initial-version" = $i' <<<"$entry")"
       fi
       entering+=("$p"$'\t'"$entry")
-      info "${u}：發布線到了它的第一個階段，入版為 ${new}（prerelease-type ${new}.1，不寫 Release-As）"
+      if first_release_needs_release_as "$u" "$(jq -r '."release-type" // "node"' <<<"$entry")" "$new"; then
+        info "${u}：發布線到了它的第一個階段，入版為 ${first}（release-please 的 $(jq -r '."release-type"' <<<"$entry") 策略不讀 initial-version，另提交 Release-As）"
+        (( DRY_RUN )) || release_as_commit "$branch" "$u" "$p" "$first"
+      else
+        info "${u}：發布線到了它的第一個階段，入版為 ${new}（prerelease-type ${new}.1，不寫 Release-As）"
+      fi
       continue
     fi
     [[ "$new" != "$old" ]] || { info "= ${u} 留在 ${old}"; continue; }

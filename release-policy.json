@@ -10,18 +10,14 @@
     "blueprint-poly-sdk": {
       "kind": "sdk",
       "stages": [
-        "alpha",
         "beta",
-        "rc",
         "ga"
       ]
     },
     "blueprint-poly-sdk-py": {
       "kind": "sdk",
       "stages": [
-        "alpha",
         "beta",
-        "rc",
         "ga"
       ]
     },

@@ -2,6 +2,7 @@
   "name": "blueprint-poly-sdk",
   "version": "0.0.0",
   "description": "TypeScript SDK of blueprint-poly-pkg",
+  "license": "MIT",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
