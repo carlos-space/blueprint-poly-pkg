@@ -89,14 +89,31 @@ jobs:
         with:
           client-id: ${{ vars.RELEASE_PLEASE_APP_CLIENT_ID }}
           private-key: ${{ secrets.RELEASE_PLEASE_APP_PRIVATE_KEY }}
-      # --match-head-commit makes gh refuse the merge when a commit was pushed after the checks were read
+      # --match-head-commit makes gh refuse the merge when a commit was pushed after the checks were read.
+      # Pull requests merged at the same moment into one base can get HTTP 405 "Base branch was modified" for the one that lost the
+      # race (reported by users; the GitHub documentation does not mention it). Only that error is retried, up to 5 attempts 3 seconds
+      # apart; any other error fails at once, as does the last attempt.
       - name: Squash-merge the pull request
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
           GH_REPO: ${{ github.repository }}
           PR_NUMBER: ${{ needs.decide.outputs.pr }}
           HEAD_SHA: ${{ needs.decide.outputs.sha }}
-        run: gh pr merge "$PR_NUMBER" --squash --match-head-commit "$HEAD_SHA" --delete-branch
+          MERGE_MAX_ATTEMPTS: "5"
+          MERGE_RETRY_SECONDS: "3"
+        run: |
+          for (( attempt = 1; ; attempt++ )); do
+            rc=0
+            out="$(gh pr merge "$PR_NUMBER" --squash --match-head-commit "$HEAD_SHA" --delete-branch 2>&1)" || rc=$?
+            printf '%s\n' "$out"
+            (( rc == 0 )) && exit 0
+            if (( attempt < MERGE_MAX_ATTEMPTS )) && [[ "$out" == *"Base branch was modified"* ]]; then
+              echo "::warning::base branch was modified during the merge, attempt $attempt of $MERGE_MAX_ATTEMPTS, retrying in $MERGE_RETRY_SECONDS seconds"
+              sleep "$MERGE_RETRY_SECONDS"
+              continue
+            fi
+            exit "$rc"
+          done
 
   merge-release-pr:
     needs: decide

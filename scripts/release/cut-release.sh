@@ -33,6 +33,9 @@
 # The config's prerelease-type is "<stage>.1", which the strategy appends to a unit's first bump
 # (1.3.1 + feat → 1.4.0-alpha.1); a unit that never shipped starts at its initial-version plus the stage: the
 # initial-version its config entry already has (0.1.0-alpha.1), else the product line (<line>.0-<stage>.1).
+# Exception: release-please's python and rust strategies ignore initial-version and start at 0.1.0 (python.ts:200-202,
+# rust.ts:133-134). A unit of those release-types with no <component>/v* tag and a prerelease stage therefore gets one more
+# commit on top of the opening commit, touching its path and carrying "Release-As: <initial-version>" (base.ts:543-573).
 set -euo pipefail
 source "$(dirname "$0")/../lib/common.sh"
 cd "$REPO_ROOT"
@@ -202,7 +205,7 @@ fi
 # A unit that has never shipped has no release for the prerelease strategy to bump from, so
 # release-please would take initial-version verbatim (1.0.0 when unset). Start it at this line, in
 # the same format the unit's stage gives every other unit.
-declare -a fresh=()
+declare -a fresh=() pinned=()
 stagemap="{}"
 for u in "${deferred[@]:-}"; do
   [[ -n "$u" ]] && info "${u}：發布線還沒到它的第一個階段（$(policy_unit_stages "$u" | head -1)），先不發，推進到那個階段才入版"
@@ -219,7 +222,13 @@ for u in "${active[@]}"; do
     info "${u}：目前 $(manifest_version "$p")，${ust} → ${tgt}；第一個版本由 release-please 依 commit 計算"
     continue
   fi
-  fresh+=("$p"); info "${u}：首次發布，${ust} → ${tgt}，起始版號 ${initial}"
+  fresh+=("$p")
+  if first_release_needs_release_as "$u" "$(unit_release_type "$p")" "$ust"; then
+    pinned+=("$u"$'\t'"$p"$'\t'"$initial")
+    info "${u}：首次發布，${ust} → ${tgt}，起始版號 ${initial}（$(unit_release_type "$p") 策略不讀 initial-version，開線後另提交 Release-As）"
+  else
+    info "${u}：首次發布，${ust} → ${tgt}，起始版號 ${initial}"
+  fi
 done
 freshj="[]"; (( ${#fresh[@]} )) && { freshj="$(printf '"%s",' "${fresh[@]}")"; freshj="[${freshj%,}]"; }
 
@@ -267,6 +276,18 @@ Release-Train-Base: $base_sha
 Release-Plan: $plan
 Release-Train-Units: ${units[*]}
 Release-Train-Stage: $stage"
+
+# release-please's python and rust strategies start a unit that has no release at 0.1.0 and never read
+# initial-version, so the first version of those units is pinned by Release-As commits on top of the opening commit.
+if (( DRY_RUN )); then
+  for row in "${pinned[@]:-}"; do [[ -n "$row" ]] && info "[dry-run] ${row%%$'\t'*}：會另提交 Release-As: ${row##*$'\t'}"; done
+else
+  for row in "${pinned[@]:-}"; do
+    [[ -n "$row" ]] || continue
+    IFS=$'\t' read -r pu pp pv <<<"$row"
+    release_as_commit "$branch" "$pu" "$pp" "$pv"
+  done
+fi
 
 log "推送分支（觸發 release-please → 各單元的 Release PR）"
 external "$(remote_target)" git push -u origin "$branch"

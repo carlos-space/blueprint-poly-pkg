@@ -316,11 +316,33 @@ upload_pypi() {
 }
 
 # --- crates.io ----------------------------------------------------------------------------------------------------
+# crates.io refuses an upload whose Cargo.toml has no description, or has neither license nor license-file (Cargo manifest
+# reference: "crates.io requires the description to be set", "crates.io requires either license or license-file to be
+# set"). cargo publish --dry-run only warns about it, so without this check the build passes and the upload is refused.
+# A value inherited from the workspace ({ workspace = true }) counts as set.
+check_crate_metadata() { # check_crate_metadata <path> <crate name>
+  local missing
+  missing="$(python3 - "$1/Cargo.toml" <<'PY'
+import sys, tomllib
+pkg = tomllib.load(open(sys.argv[1], "rb")).get("package", {})
+def set_(key):
+    v = pkg.get(key)
+    return isinstance(v, dict) or (isinstance(v, str) and v.strip() != "")
+missing = []
+if not set_("description"): missing.append("description")
+if not (set_("license") or set_("license-file")): missing.append("license (or license-file)")
+print(", ".join(missing))
+PY
+)"
+  [[ -z "$missing" ]] || die "$1/Cargo.toml：crate $2 缺 crates.io 要求的欄位：${missing}"
+}
+
 # crates.io has no command that uploads a built .crate, so the build only verifies the crate (a dry run compiles it)
 # and the upload job publishes from the source tree.
 pack_crates() { # pack_crates <path> <version>
   local p="$1" ver="$2" name
   name="$(toml_get "$p/Cargo.toml" package name)"
+  check_crate_metadata "$p" "$name"
   if crates_published "$name" "$ver"; then
     info "crates.io：$name $ver 已發布，略過"; return 0
   fi

@@ -14,7 +14,9 @@
 # Release-As commit (1.2.0-alpha.3 → 1.2.0-beta.1), and the config then carries the new prerelease-type of
 # every unit that moved. The Release-As is what switches the stage: for a version that is already a
 # prerelease, release-please only bumps its trailing number and never reads prerelease-type. Units that
-# stay at their stage, and units that have not released in this train yet, get no commit. Reaching ga hands
+# stay at their stage, and units that have not released in this train yet, get no commit, except a python or rust unit
+# entering the train for the first time (no <component>/v* tag) in a prerelease stage: release-please ignores its
+# initial-version and would ship 0.1.0, so it gets a Release-As commit with {X.Y}.0-{stage}.1. Reaching ga hands
 # over to finalize-release.sh --phase ga. The product version comes from the Release-Plan trailer that
 # cut-release.sh wrote, so nothing here takes it.
 set -euo pipefail
