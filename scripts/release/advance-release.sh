@@ -14,11 +14,16 @@
 # Release-As commit (1.2.0-alpha.3 → 1.2.0-beta.1), and the config then carries the new prerelease-type of
 # every unit that moved. The Release-As is what switches the stage: for a version that is already a
 # prerelease, release-please only bumps its trailing number and never reads prerelease-type. Units that
-# stay at their stage, and units that have not released in this train yet, get no commit, except a python or rust unit
-# entering the train for the first time (no <component>/v* tag) in a prerelease stage: release-please ignores its
-# initial-version and would ship 0.1.0, so it gets a Release-As commit with {X.Y}.0-{stage}.1. Reaching ga hands
-# over to finalize-release.sh --phase ga. The product version comes from the Release-Plan trailer that
-# cut-release.sh wrote, so nothing here takes it.
+# stay at their stage, and units that have not released in this train yet, get no commit, with one exception:
+# a python or rust unit with no <component>/v* tag on the remote (git ls-remote --tags origin; a failing
+# query stops the script). release-please ignores its initial-version and counts on from the manifest, so
+# the unit gets a Release-As commit with its first version (unit_first_version: {X.Y}.0-{stage}.1, from the
+# initial-version of main's config), whether it enters the branch config now or is already in it with a
+# stable manifest version or no manifest entry. The branch config's initial-version is then set to that
+# version. A manifest version above the base stops the script. A unit that has a tag only has its config
+# changed. Reaching ga hands over to finalize-release.sh --phase ga, which writes Release-As {X.Y}.0 for a
+# python or rust unit in the config that has a stable manifest version and no tag. The product version comes
+# from the Release-Plan trailer that cut-release.sh wrote, so nothing here takes it.
 set -euo pipefail
 source "$(dirname "$0")/../lib/common.sh"
 cd "$REPO_ROOT"

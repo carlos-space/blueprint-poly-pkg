@@ -110,6 +110,44 @@ first_release_needs_release_as() {
   [[ "$3" != ga ]] && ! unit_released "$1"
 }
 
+# unit_first_version <release-type> <base> <stage> <line> <manifest version> → the version a unit with no
+# <component>/v* tag releases first when it is in <stage>. Advancing, GA and the check before the merge of a
+# Release PR (merge-release-pr.sh) all ask this one function, so they cannot disagree.
+#   - a prerelease stage: <base>-<stage>.1 (stage_initial_version), e.g. 0.1.0-beta.1
+#   - ga, the manifest holds a prerelease: its stable version (1.2.0-rc.2 → 1.2.0), what the GA Release-As says
+#   - ga, python or rust, no manifest entry: 0.1.0, which release-please picks by itself
+#   - ga, python or rust, the manifest holds a stable version: <X.Y>.0, written as Release-As because
+#     release-please would count on from the manifest (0.1.0 + feat → 0.2.0)
+#   - ga, any other release-type: the base
+# <base> is the initial-version of main's config, else <line>.0 (unit_main_base_version).
+unit_first_version() {
+  local type="$1" base="$2" stage="$3" line="$4" cur="$5"
+  if [[ "$stage" != ga ]]; then stage_initial_version "$base" "$stage"; return; fi
+  if [[ "$cur" == *-* ]]; then stable_version "$cur"; return; fi
+  case "$type" in
+    python|rust) if [[ -z "$cur" ]]; then printf '%s\n' "0.1.0"; else printf '%s\n' "$line.0"; fi ;;
+    *) printf '%s\n' "$base" ;;
+  esac
+}
+
+# unit_main_base_version <path> <line> → the base of a unit's first version: the initial-version its entry has in
+# main's config, else <line>.0. The branch config is not read: it already carries <base>-<stage>.1 for a unit that
+# was boarded, and stage_initial_version on top of that would give 0.1.0-alpha.1-beta.1.
+unit_main_base_version() {
+  local b
+  b="$(git show "origin/main:$CONFIG" 2>/dev/null | jq -r --arg p "$1" '.packages[$p]["initial-version"] // empty')"
+  printf '%s\n' "${b:-$2.0}"
+}
+
+# version_above_base <manifest version> <base> → succeeds when the manifest version, prerelease suffix removed, is
+# higher than the base (also without its suffix). A first release with Release-As would then move the version back.
+version_above_base() {
+  local bin="$REPO_ROOT/node_modules/.bin/semver" cur base
+  cur="$(stable_version "$1")" base="$(stable_version "$2")"
+  [[ -x "$bin" ]] || die "找不到 ${bin}，先在 $REPO_ROOT 執行 pnpm install"
+  [[ -n "$("$bin" "$cur" -r ">$base")" ]]
+}
+
 # stages_union <unit>... → the stages any of the units walks, in stage order, one per line
 # The aggregate packages (aggregate_unit) follow the line and do not set it, so they are left out; a train
 # of nothing but aggregates counts its own stages.
@@ -420,15 +458,34 @@ train_gates() { # train_gates <branch> <line> <stage>
 
 # GA: one commit per unit of the train carrying "Release-As: <its stable version>", for every unit that
 # shipped a prerelease (1.2.0-rc.2 → 1.2.0). A unit still on a stable version has not released in this
-# train and is left alone. Under DRY_RUN it only lists the moves.
+# train and is left alone, with one exception: a python or rust unit that has a stable manifest version but no
+# <component>/v* tag on the remote (unit_released) never shipped. release-please would count on from that
+# manifest version (0.1.0 + feat → 0.2.0), so it gets "Release-As: <X.Y>.0" (unit_first_version), which is the
+# manifest value when the line is the one the manifest came from. A manifest version above the base stops the
+# script. Under DRY_RUN it only lists the moves.
 train_release_ga() { # train_release_ga <branch>
-  local branch="$1" u p cur next
+  local branch="$1" u p cur next type base line="${1#release/v}"
   local -a units=()
   while IFS= read -r u; do [[ -n "$u" ]] && units+=("$u"); done < <(config_units)
   for u in "${units[@]}"; do
     p="$(unit_path "$u")"
     cur="$(manifest_version "$p")"
-    [[ "$cur" == *-* ]] || { info "⊘ ${u}（${cur}）本次發布未發過 prerelease，略過"; continue; }
+    if [[ "$cur" != *-* ]]; then
+      type="$(unit_release_type "$p")"
+      case "$type" in
+        python|rust)
+          if [[ -n "$cur" ]] && ! unit_released "$u"; then
+            base="$(unit_main_base_version "$p" "$line")"
+            [[ -n "$cur" ]] && version_above_base "$cur" "$base" \
+              && die "${u} 的 manifest 版號 ${cur} 高於基底 ${base}，沒有 tag 的單元不能用 Release-As 退回基底。先確認它有沒有發過版"
+            next="$(unit_first_version "$type" "$base" ga "$line" "$cur")"
+            info "${u}：${cur} 沒有 tag，第一次發版寫 Release-As ${next}（release-please 會從 manifest 的 ${cur} 往上算）"
+            (( DRY_RUN )) || release_as_commit "$branch" "$u" "$p" "$next"
+            continue
+          fi ;;
+      esac
+      info "⊘ ${u}（${cur}）本次發布未發過 prerelease，略過"; continue
+    fi
     next="$(stable_version "$cur")"
     info "${u}：$cur → $next"
     (( DRY_RUN )) && continue
@@ -440,10 +497,17 @@ train_release_ga() { # train_release_ga <branch>
 # stage. A unit that already shipped a prerelease in this train gets one commit carrying
 # "Release-As: <version>" (1.2.0-alpha.3 → 1.2.0-beta.1), because release-please only bumps the trailing
 # number of a version that is already a prerelease and never reads prerelease-type. A unit that has not
-# shipped yet only has its config changed, and its first version lands in the new stage. Units whose
-# stage stays put are left alone. The config change is one more commit. Under DRY_RUN it only lists the moves.
+# shipped yet only has its config changed, and its first version lands in the new stage, with one exception:
+# a python or rust unit with no <component>/v* tag on the remote (unit_released). release-please ignores
+# initial-version for them and counts on from the manifest, so it gets "Release-As: <first version>"
+# (unit_first_version) whether it is new to the branch config or already in it with a stable manifest version
+# or no manifest entry (0.1.0 + feat → 0.2.0-alpha.1 otherwise). A manifest version above the base stops the
+# script. The branch config then carries the new first version as its initial-version. A unit that has a tag
+# only has its config changed. Units whose stage stays put are left alone. The config change is one more
+# commit. Under DRY_RUN it only lists the moves.
 train_enter_stage() { # train_enter_stage <branch> <target>
-  local branch="$1" target="$2" u p cur old new next id map='{}' entry line base first
+  local branch="$1" target="$2" u p cur old new next id map='{}' entry line base first type
+  local -a retitled=()
   local -a units=() entering=()
   while IFS= read -r u; do [[ -n "$u" ]] && units+=("$u"); done < <(train_boarded_units)
   line="${branch#release/v}"
@@ -475,7 +539,21 @@ train_enter_stage() { # train_enter_stage <branch> <target>
     [[ "$new" != "$old" ]] || { info "= ${u} 留在 ${old}"; continue; }
     cur="$(manifest_version "$p")"
     if [[ "$cur" != *-* ]]; then
-      info "${u}：$old → ${new}（本次發布還沒發過 prerelease，只改設定）"; continue
+      type="$(unit_release_type "$p")"
+      if first_release_needs_release_as "$u" "$type" "$new"; then
+        base="$(unit_main_base_version "$p" "$line")"
+        [[ -n "$cur" ]] && version_above_base "$cur" "$base" \
+          && die "${u} 的 manifest 版號 ${cur:-（無）} 高於基底 ${base}，沒有 tag 的單元不能用 Release-As 退回基底。先確認它有沒有發過版"
+        first="$(unit_first_version "$type" "$base" "$new" "$line" "$cur")"
+        info "${u}：$old → ${new}，沒有 tag，第一次發版寫 Release-As ${first}（${type} 策略不讀 initial-version，會從 manifest 的 ${cur:-（無條目）} 往上算）"
+        if (( ! DRY_RUN )); then
+          release_as_commit "$branch" "$u" "$p" "$first"
+          retitled+=("$p"$'\t'"$first")
+        fi
+      else
+        info "${u}：$old → ${new}（本次發布還沒發過 prerelease，只改設定）"
+      fi
+      continue
     fi
     id="${cur#*-}"; id="${id%%.*}"
     if is_stage "$id" && (( $(stage_index "$id") >= $(stage_index "$new") )); then
@@ -495,6 +573,10 @@ train_enter_stage() { # train_enter_stage <branch> <target>
     jq --arg p "${row%%$'\t'*}" --argjson e "${row#*$'\t'}" '.packages[$p] = $e' "$tmp" > "$tmp.2" && mv "$tmp.2" "$tmp"
   done
   config_with_stages "$tmp" "$map" > "$tmp.2" && mv "$tmp.2" "$CONFIG"; rm -f "$tmp"
+  for row in "${retitled[@]:-}"; do
+    [[ -n "$row" ]] || continue
+    jq --arg p "${row%%$'\t'*}" --arg i "${row#*$'\t'}" '.packages[$p]["initial-version"] = $i' "$CONFIG" > "$CONFIG.2" && mv "$CONFIG.2" "$CONFIG"
+  done
   git add "$CONFIG"
   git commit -q -m "chore($branch): enter $target" -m "各單元的 prerelease-type 依政策檔改到新階段，之後才第一次發版的單元也直接落在新階段。
 
