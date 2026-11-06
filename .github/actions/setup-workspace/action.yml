@@ -1,0 +1,53 @@
+name: setup-workspace
+description: >
+  Toolchain for this repo on either runner environment: Node + pnpm via setup actions (never
+  preinstalled tools) and an optional frozen install. The scripts are bash, which both runner
+  environments already ship, so no shell install is needed. The pnpm cache input is disabled on
+  self-hosted, where a persistent store is mounted.
+inputs:
+  node:
+    description: install Node and pnpm (deploy / finalize jobs only need jq and gh)
+    default: "true"
+  install:
+    description: run pnpm install --frozen-lockfile
+    default: "true"
+  registry-url:
+    description: passed to setup-node for publish jobs
+    default: ""
+  restore-from-default:
+    description: >
+      space-separated paths to take from the default branch instead of the checked-out ref. Deploy and
+      finalize jobs check out a tag, whose scripts/ and ops/ are frozen at release time; the tooling
+      must come from the default branch or a fix landed after the tag is silently not used.
+    default: ""
+runs:
+  using: composite
+  steps:
+    - name: tooling from the default branch
+      if: inputs.restore-from-default != ''
+      shell: bash
+      run: |
+        git fetch --no-tags origin "${{ github.event.repository.default_branch }}"
+        git checkout FETCH_HEAD -- ${{ inputs.restore-from-default }}
+    # GitHub-hosted: pnpm first, because setup-node's pnpm cache needs the pnpm binary already on PATH.
+    # Self-hosted: Node first, because pnpm/action-setup runs its installer with whatever node is on
+    # PATH and the macOS base image ships one too old for it (self-hosted-runner README).
+    - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      if: inputs.node == 'true' && runner.environment == 'github-hosted'
+    - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      if: inputs.node == 'true'
+      with:
+        node-version: 24
+        cache: ${{ runner.environment == 'github-hosted' && 'pnpm' || '' }}
+        registry-url: ${{ inputs.registry-url }}
+    - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      if: inputs.node == 'true' && runner.environment != 'github-hosted'
+    - name: pnpm install
+      if: inputs.node == 'true' && inputs.install == 'true'
+      shell: bash
+      # pnpm 11 and later read only PNPM_CONFIG_STORE_DIR, and runnerd sets only npm_config_store_dir. Export it
+      # in this step, not in the job env, because pnpm self-update reads it too (runnerd README).
+      # GitHub-hosted has no npm_config_store_dir, so nothing is exported there.
+      run: |
+        [ -n "${npm_config_store_dir:-}" ] && export PNPM_CONFIG_STORE_DIR="$npm_config_store_dir"
+        pnpm install --frozen-lockfile
