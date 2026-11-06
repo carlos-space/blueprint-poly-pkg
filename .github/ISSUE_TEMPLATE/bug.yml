@@ -1,0 +1,15 @@
+name: Bug（主線）
+description: 尚未發布或 staging 發現的 bug（bugfix/<issue-N>-<kebab> → main）
+labels: ["type:bug"]
+body:
+  - type: textarea
+    id: repro
+    attributes:
+      label: 重現步驟與預期
+    validations:
+      required: true
+  - type: dropdown
+    id: env
+    attributes:
+      label: 發現環境
+      options: [local, dev, beta, staging, production]

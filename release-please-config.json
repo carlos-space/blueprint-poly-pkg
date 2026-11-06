@@ -1,0 +1,56 @@
+{
+  "$schema": "https://raw.githubusercontent.com/googleapis/release-please/main/schemas/config.json",
+  "$comment": "Single config for every unit. Versioning happens only on release/v* branches: cut-release.sh copies this file onto the branch filtered to the train's units and gives each unit the versioning and prerelease-type its stage in release-policy.json calls for; finalize-release.sh --phase ga takes the units out of prerelease mode. main never carries version commits.",
+  "include-component-in-tag": true,
+  "include-v-in-tag": true,
+  "tag-separator": "/",
+  "separate-pull-requests": false,
+  "bump-minor-pre-major": true,
+  "changelog-sections": [
+    {
+      "type": "feat",
+      "section": "Added"
+    },
+    {
+      "type": "fix",
+      "section": "Fixed"
+    },
+    {
+      "type": "perf",
+      "section": "Changed"
+    },
+    {
+      "type": "deps",
+      "section": "Changed"
+    },
+    {
+      "type": "revert",
+      "section": "Changed"
+    }
+  ],
+  "plugins": [
+    {
+      "type": "node-workspace"
+    }
+  ],
+  "packages": {
+    "packages/blueprint-poly-sdk": {
+      "component": "blueprint-poly-sdk",
+      "release-type": "node"
+    },
+    "packages/blueprint-poly-sdk-py": {
+      "component": "blueprint-poly-sdk-py",
+      "release-type": "python"
+    },
+    "libs/blueprint-poly-shared": {
+      "component": "blueprint-poly-shared",
+      "release-type": "node"
+    },
+    "facts": {
+      "component": "blueprint-poly-pkg-facts",
+      "release-type": "node",
+      "changelog-path": "CHANGELOG.md",
+      "initial-version": "0.1.0"
+    }
+  }
+}
