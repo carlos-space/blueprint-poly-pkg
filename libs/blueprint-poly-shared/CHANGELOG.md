@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.1](https://github.com/carlos-space/blueprint-poly-pkg/compare/blueprint-poly-shared/v0.1.0...blueprint-poly-shared/v0.1.1) (2026-11-06)
+
+
+### Fixed
+
+* **blueprint-poly-shared:** 修正 v0.2.0 的一項問題 ([#36](https://github.com/carlos-space/blueprint-poly-pkg/issues/36)) ([0344ace](https://github.com/carlos-space/blueprint-poly-pkg/commit/0344ace34248174a0aad893b589ebee2d80b5769))
+
 ## 0.1.0 (2026-11-06)
 
 
