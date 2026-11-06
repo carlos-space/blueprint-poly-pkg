@@ -1,0 +1,68 @@
+# AI-platform attribution list for check-commit-body.sh. A message line is AI attribution when it starts
+# (after any list marker or emoji) with Co-authored-by:, Assisted-by:, Generated-by:, Made-with:,
+# "Generated with" or "Made with", and it names an entry below. Co-authors that match no entry are humans
+# and pass.
+#
+# Format: one entry per line, "<kind> <value>", compared case-insensitively.
+#   name   matched as whole words anywhere in the line, so "Claude" also covers "Claude Sonnet 5"; a
+#          value may hold several words ("amazon q")
+#   email  matched as a substring of the line
+# Every entry carries a source comment. "未查證" means no official source was found; the entry stays
+# because the platform is in the required list, and should be confirmed or dropped when one turns up.
+# Known false positive: a human co-author whose name contains a listed word (for example a person named
+# Claude) is blocked too. Credit that person in the message text instead of a Co-authored-by trailer.
+
+# Claude Code: default commit trailer "Co-Authored-By: <model name> <noreply@anthropic.com>", the name
+# being "Claude", "Claude <model>" or "Claude Code"; default PR line
+# "🤖 Generated with [Claude Code](https://claude.com/claude-code)".
+# 出處：https://code.claude.com/docs/en/settings-reference.md（attribution.commit、attribution.pr，2026-10-01 讀取）
+name claude
+email noreply@anthropic.com
+# Anthropic as a name, for trailers that spell the vendor instead of the product. 未查證
+name anthropic
+
+# GitHub Copilot in VS Code (git.addAICoAuthor): "Co-authored-by: Copilot <copilot@github.com>".
+# 出處：https://github.com/microsoft/vscode/blob/main/extensions/git/src/repository.ts（AI_CO_AUTHOR_TRAILER，2026-10-01 讀取）
+name copilot
+email copilot@github.com
+
+# Cursor: Agent adds a "Made with Cursor" trailer to commits and to PRs opened with gh pr create.
+# 出處：https://cursor.com/docs/integrations/git（How does Agent attribution work?，2026-10-01 讀取）
+name cursor
+# Cursor cloud agents commit as "Cursor Agent <cursoragent@cursor.com>" and add Co-authored-by. Only
+# seen in user reports on forum.cursor.com, not in Cursor's docs. 未查證
+email cursoragent@cursor.com
+
+# OpenAI Codex: commit trailer "Co-authored-by: Codex <noreply@openai.com>".
+# 出處：https://github.com/openai/codex/blob/main/codex-rs/ext/git-attribution/src/world_state.rs（2026-10-01 讀取）
+name codex
+email noreply@openai.com
+# OpenAI as a name, for trailers that spell the vendor instead of the product. 未查證
+name openai
+
+# Google Gemini (Gemini CLI, Gemini Code Assist): no attribution trailer found in the gemini-cli source
+# or Google's docs. 未查證
+name gemini
+
+# Aider: --attribute-co-authored-by adds "Co-authored-by: aider (<model>) <aider@aider.chat>".
+# 出處：https://aider.chat/docs/git.html 與 https://github.com/Aider-AI/aider/blob/main/aider/repo.py（2026-10-01 讀取）
+name aider
+email aider@aider.chat
+
+# Devin: the "Git commit attribution" setting has a "Co-authored (Devin + you)" mode. The docs do not
+# give the exact trailer text or e-mail, so only the name is listed.
+# 出處：https://docs.devin.ai/integrations/gh（GPG signing 一節的 Commit authoring 模式，2026-10-01 讀取）
+name devin
+
+# Windsurf (Cascade): no commit or PR attribution found in docs.windsurf.com. 未查證
+name windsurf
+
+# Amazon Q Developer: no commit or PR attribution found in AWS docs or the amazon-q-developer-cli
+# source. 未查證
+name amazon q
+
+# Amp: commits made by the agent carry "Co-authored-by: Amp <amp@ampcode.com>" (and an Amp-Thread-ID:
+# trailer, which names no co-author and is not checked here).
+# 出處：https://ampcode.com/docs/github（2026-10-01 讀取）
+name amp
+email amp@ampcode.com

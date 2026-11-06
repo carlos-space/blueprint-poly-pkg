@@ -1,0 +1,11 @@
+packages:
+  - "libs/*"
+  - "packages/*"
+  - "facts"
+  - "facts/*"
+minimumReleaseAge: 1440
+minimumReleaseAgeExclude:
+  - "@carlos-space/*"
+  - "*-facts"
+  - fact-kit
+  - clarify-kit

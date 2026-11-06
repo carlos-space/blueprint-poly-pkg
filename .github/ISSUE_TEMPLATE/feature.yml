@@ -1,0 +1,19 @@
+name: Feature
+description: 新功能（feature/<issue-N>-<kebab> → main）
+labels: ["type:feature"]
+body:
+  - type: textarea
+    id: goal
+    attributes:
+      label: 目標與驗收條件
+    validations:
+      required: true
+  - type: dropdown
+    id: units
+    attributes:
+      label: 影響單元
+      multiple: true
+      options: [blueprint-poly-sdk, blueprint-poly-sdk-py, blueprint-poly-shared]
+  - type: markdown
+    attributes:
+      value: 版號於 Release Plan 撰寫時才指派（label release:v*），此處不填版號。
