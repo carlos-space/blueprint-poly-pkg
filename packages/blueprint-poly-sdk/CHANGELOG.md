@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.0-beta.1](https://github.com/carlos-space/blueprint-poly-pkg/compare/blueprint-poly-sdk/v0.1.0...blueprint-poly-sdk/v0.2.0-beta.1) (2026-11-06)
+
+
+### Added
+
+* **blueprint-poly-sdk:** 為 v0.3.0 補一項變更 ([#40](https://github.com/carlos-space/blueprint-poly-pkg/issues/40)) ([b0a781c](https://github.com/carlos-space/blueprint-poly-pkg/commit/b0a781c7abfc90cd4584eb72ba0e582210a85e5c))
+
 ## [0.1.0](https://github.com/carlos-space/blueprint-poly-pkg/compare/blueprint-poly-sdk/v0.1.0-beta.1...blueprint-poly-sdk/v0.1.0) (2026-11-06)
 
 
