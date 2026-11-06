@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.0](https://github.com/carlos-space/blueprint-poly-pkg/compare/blueprint-poly-sdk-py/v0.1.0-beta.1...blueprint-poly-sdk-py/v0.1.0) (2026-11-06)
+
+
+### chore
+
+* **release/v0.1:** blueprint-poly-sdk-py 0.1.0 ([e1696f7](https://github.com/carlos-space/blueprint-poly-pkg/commit/e1696f7a5eedbf9d1d353f03061ed68f527a4c19))
+
 ## 0.1.0-beta.1 (2026-11-06)
 
 

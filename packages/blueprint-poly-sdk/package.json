@@ -1,6 +1,6 @@
 {
   "name": "blueprint-poly-sdk",
-  "version": "0.1.0-beta.1",
+  "version": "0.1.0",
   "description": "TypeScript SDK of blueprint-poly-pkg",
   "license": "MIT",
   "type": "module",
