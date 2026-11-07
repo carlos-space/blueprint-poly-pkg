@@ -1,0 +1,20 @@
+{
+  "label": "auto-merge",
+  "requiredChecks": [
+    "pr-title",
+    "static",
+    "build-test",
+    "facts"
+  ],
+  "pathFiltered": {},
+  "reviewPaths": [
+    "/release-please-config*.json",
+    "/.release-please-manifest.json",
+    "/.github/workflows/",
+    "/scripts/release/"
+  ],
+  "syncPr": {
+    "author": "carlos-space-bot[bot]",
+    "branch": "chore/no-ref-sync-from-blueprint"
+  }
+}

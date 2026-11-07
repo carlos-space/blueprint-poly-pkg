@@ -1,0 +1,7 @@
+{
+  "aggregate": {
+    "blueprint-poly-sdk": "blueprint-poly-sdk-facts",
+    "blueprint-poly-sdk-py": "blueprint-poly-sdk-py-facts",
+    "blueprint-poly-shared": "blueprint-poly-shared-facts"
+  }
+}

@@ -1,0 +1,42 @@
+# Checks every commit message that landed on the default branch since the previous day: Conventional Commits,
+# no merge commits, and no AI-platform attribution, with the same script the pre-push hook runs
+# (scripts/ci/check-main-commits.sh). Hooks can be skipped with --no-verify, so this is the after-the-fact detection.
+# The job runs on the repository variable LINUX_RUNNER, defaulting to the self-hosted scale set
+# ubuntu-latest; any runner with git and bash 4 works. A repository without self-hosted runners sets
+# LINUX_RUNNER to ubuntu-latest.
+# Third-party actions are pinned to a commit SHA; the comment after it names the release it came from.
+# Platform behavior this file relies on, by id in the service-facts package (github-actions entry):
+# fact: action-sha-pinning
+# fact: token-permissions-key
+# fact: job-timeout-default
+# fact: checkout-persist-credentials
+name: main-commit-check
+on:
+  schedule:
+    - cron: "0 18 * * *"
+  workflow_dispatch:
+permissions:
+  contents: read
+env:
+  # a loop of a template script asks twice at most and the CI gate asks twice (decision self-hosted-job-no-wait)
+  POLL_TRIES: "2"
+  CI_GATE_TRIES: "2"
+  CI_GATE_QUEUE_TRIES: "0"
+
+jobs:
+  check:
+    runs-on: ${{ vars.LINUX_RUNNER || 'ubuntu-latest' }}
+    timeout-minutes: 10
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: check commits from the previous day
+        run: |
+          # the newest commit older than a day is the lower bound; a history younger than a day is checked whole
+          since="$(git rev-list -n1 --before='1 day ago' HEAD || true)"
+          bash scripts/ci/check-main-commits.sh "${since:+$since..}HEAD"

@@ -1,0 +1,9 @@
+[
+  {
+    "unit": "blueprint-poly-sdk-py",
+    "dir": "packages/blueprint-poly-sdk-py",
+    "lang": "python",
+    "build": "python -m pip install build && python -m build packages/blueprint-poly-sdk-py",
+    "test": "python -m pip install -e \"packages/blueprint-poly-sdk-py[test]\" && python -m pytest packages/blueprint-poly-sdk-py"
+  }
+]

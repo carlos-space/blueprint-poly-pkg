@@ -1,0 +1,138 @@
+name: auto-merge
+
+# Merges the pull requests that carry the auto-merge label once the required checks have passed. Every repository
+# has this same workflow, because the free plan gives a private repository no platform auto-merge and no ruleset.
+# It runs when the auto-merge label is added and when ci or pr-message finishes, and each run reads the checks of the latest
+# head commit again (scripts/merge/decide.mjs). The required checks and the label are in scripts/merge/merge-config.json.
+# The decide job's if keeps every event that cannot lead to a merge off the runner: another label than the auto-merge label
+# (release-please adds autorelease labels), a Release PR (its branch starts with release-please--, and a script merges it, never this workflow),
+# and a finished ci or pr-message that belongs to no pull request (a push to main or a release branch, or a fork).
+# A ci that failed still runs the decision, because a job of ci that is not a required check (native) can fail while the
+# required checks pass. pr-message stays a trigger: pr-title is a required check in it, and when it finishes after ci there is no
+# later event to merge on.
+#
+# pull_request_target runs this file and the scripts from the base branch, never from the pull request, so the
+# App token is not handed to code of the pull request. A pull request from a fork is never merged.
+# The names of the GitHub App variable and secret are written in when the repository is composed.
+on:
+  pull_request_target:
+    types: [labeled]
+  workflow_run:
+    workflows: [ci, pr-message]
+    types: [completed]
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  # a loop of a template script asks twice at most and the CI gate asks twice (decision self-hosted-job-no-wait)
+  POLL_TRIES: "2"
+  CI_GATE_TRIES: "2"
+  CI_GATE_QUEUE_TRIES: "0"
+
+jobs:
+  decide:
+    # The label value is written in when the repository is composed (scripts/merge/merge-config.json has the same one).
+    if: >-
+      (github.event_name == 'pull_request_target'
+      && github.event.label.name == 'auto-merge'
+      && !startsWith(github.event.pull_request.head.ref, 'release-please--'))
+      || (github.event_name == 'workflow_run'
+      && github.event.workflow_run.pull_requests[0].number
+      && !startsWith(github.event.workflow_run.head_branch, 'release-please--'))
+    # A newer event of the same pull request reads the checks again, so a decide still running for an older one is cancelled.
+    concurrency:
+      group: auto-merge-decide-${{ github.event.pull_request.number || github.event.workflow_run.pull_requests[0].number }}
+      cancel-in-progress: true
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: read
+      contents: read
+      pull-requests: read
+      checks: read
+      statuses: read
+    outputs:
+      action: ${{ steps.d.outputs.action }}
+      pr: ${{ steps.d.outputs.pr }}
+      sha: ${{ steps.d.outputs.sha }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup-workspace
+        with:
+          install: "false"
+      - id: d
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number || github.event.workflow_run.pull_requests[0].number }}
+        run: |
+          if [[ -z "$PR_NUMBER" ]]; then
+            echo "action=skip" >> "$GITHUB_OUTPUT"; echo "no pull request belongs to this event"; exit 0
+          fi
+          fields=number,state,isDraft,headRefOid,headRefName,baseRefName,isCrossRepository,labels,author,latestReviews
+          mkdir -p "$RUNNER_TEMP/merge"
+          checked_sha="$(gh pr view "$PR_NUMBER" --json headRefOid --jq .headRefOid)"
+          # gh pr checks exits 1 for a failed check and 8 for a pending one; the decision reads both from the output
+          rc=0; gh pr checks "$PR_NUMBER" --json name,bucket > "$RUNNER_TEMP/merge/checks.json" 2> "$RUNNER_TEMP/merge/checks.err" || rc=$?
+          cat "$RUNNER_TEMP/merge/checks.err" >&2
+          # a pull request without any check yet: exit 1, nothing on stdout, "no checks reported" on stderr; the decision reads that as "has not run"
+          if (( rc == 1 )) && [[ ! -s "$RUNNER_TEMP/merge/checks.json" ]] && grep -q 'no checks reported on the' "$RUNNER_TEMP/merge/checks.err"; then
+            printf '[]\n' > "$RUNNER_TEMP/merge/checks.json"
+          fi
+          (( rc == 0 || rc == 1 || rc == 8 )) || { echo "::error::gh pr checks exited $rc"; exit 1; }
+          # an empty or non-array output means the checks could not be read; it must not reach the decision as "no check ran"
+          jq -e 'type == "array"' "$RUNNER_TEMP/merge/checks.json" > /dev/null || { echo "::error::gh pr checks exited $rc and printed no JSON array of checks"; exit 1; }
+          gh pr diff "$PR_NUMBER" --name-only | jq -R . | jq -s . > "$RUNNER_TEMP/merge/files.json"
+          gh pr view "$PR_NUMBER" --json "$fields" \
+            | jq --arg sha "$checked_sha" --slurpfile checks "$RUNNER_TEMP/merge/checks.json" --slurpfile files "$RUNNER_TEMP/merge/files.json" \
+                '{pr: ., checkedSha: $sha, checks: $checks[0], changedFiles: $files[0]}' > "$RUNNER_TEMP/merge/input.json"
+          node scripts/merge/decide.mjs --input "$RUNNER_TEMP/merge/input.json" | tee "$RUNNER_TEMP/merge/decision.json"
+          {
+            echo "action=$(jq -r .action "$RUNNER_TEMP/merge/decision.json")"
+            echo "pr=$(jq -r '.pr // empty' "$RUNNER_TEMP/merge/decision.json")"
+            echo "sha=$(jq -r '.sha // empty' "$RUNNER_TEMP/merge/decision.json")"
+          } >> "$GITHUB_OUTPUT"
+          jq -r '"### auto-merge\n- action: `\(.action)`\n- \(.reason)"' "$RUNNER_TEMP/merge/decision.json" >> "$GITHUB_STEP_SUMMARY"
+
+  merge:
+    needs: decide
+    if: needs.decide.outputs.action == 'merge'
+    # A merge is never cancelled halfway: the runs of one pull request queue.
+    concurrency:
+      group: auto-merge-merge-${{ needs.decide.outputs.pr }}
+      cancel-in-progress: false
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      # the base branch's scripts/lib/retry.mjs, as in decide: never the code of the pull request
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup-workspace
+        with:
+          install: "false"
+      - id: app-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          client-id: ${{ vars.RELEASE_PLEASE_APP_CLIENT_ID }}
+          private-key: ${{ secrets.RELEASE_PLEASE_APP_PRIVATE_KEY }}
+      # --match-head-commit makes gh refuse the merge when a commit was pushed after the checks were read.
+      # Pull requests merged at the same moment into one base can get HTTP 405 "Base branch was modified" for the one that lost the
+      # race (reported by users; the GitHub documentation does not mention it). scripts/lib/retry.mjs merge asks again after that
+      # error and after a transient error of GitHub (HTTP 500, 502, 503, 504, a connect timeout), up to 5 attempts RETRY_SLEEP
+      # seconds apart; any other error fails at once, as does the last attempt (decision transient-error-shared-retry).
+      - name: Squash-merge the pull request
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          GH_REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ needs.decide.outputs.pr }}
+          HEAD_SHA: ${{ needs.decide.outputs.sha }}
+          RETRY_SLEEP: "3"
+        run: node scripts/lib/retry.mjs merge -- gh pr merge "$PR_NUMBER" --squash --match-head-commit "$HEAD_SHA" --delete-branch

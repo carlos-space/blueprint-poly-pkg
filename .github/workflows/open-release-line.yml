@@ -1,0 +1,70 @@
+name: open-release-line
+
+# 開線：由 hub 的 open-release-lines.yml 用 workflow_dispatch 啟動。hub 把產品版號、這個倉的單元與 Release Plan
+# 的內容當 input 傳來，這裡把內容寫成檔案，用 cut-release.sh --plan-file 開出 release/vX.Y。
+# 成員倉不讀 hub，也沒有讀 hub 的憑證。monorepo 的 plan 在自己的 releases/，用 cut-release.sh --plan 開線，不經這裡。
+# 開線要推 release/** 分支並讓 release-please 在那條分支上跑，所以用 GitHub App 的權杖，GITHUB_TOKEN 推的分支不觸發它。
+
+on:
+  workflow_dispatch:
+    inputs:
+      plan:
+        description: "product version of the Release Plan, vX.Y.Z"
+        required: true
+        type: string
+      units:
+        description: "comma list of this repository's units in the plan"
+        required: true
+        type: string
+      plan_content:
+        description: "content of releases/release-plan-vX.Y.Z.md of the hub"
+        required: true
+        type: string
+      from:
+        description: "base of the line: main (default) or the latest product tag of the line vX.Y.Z, for a patch line"
+        required: false
+        default: main
+        type: string
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+concurrency:
+  group: open-release-line
+  cancel-in-progress: false
+
+env:
+  # a loop of a template script asks twice at most and the CI gate asks twice (decision self-hosted-job-no-wait)
+  POLL_TRIES: "2"
+  CI_GATE_TRIES: "2"
+  CI_GATE_QUEUE_TRIES: "0"
+
+jobs:
+  open:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - id: app-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          client-id: ${{ vars.RELEASE_PLEASE_APP_CLIENT_ID }}
+          private-key: ${{ secrets.RELEASE_PLEASE_APP_PRIVATE_KEY }}
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          token: ${{ steps.app-token.outputs.token }}
+      - uses: ./.github/actions/setup-workspace
+      - name: 用 plan 的內容開線
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          bash scripts/release/open-release-line.sh
+        env:
+          PLAN: ${{ inputs.plan }}
+          UNITS: ${{ inputs.units }}
+          PLAN_CONTENT: ${{ inputs.plan_content }}
+          FROM: ${{ inputs.from }}

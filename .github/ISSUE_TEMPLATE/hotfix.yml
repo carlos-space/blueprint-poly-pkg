@@ -1,0 +1,17 @@
+name: Hotfix（已發布正式版）
+description: 生產環境正式版的問題（hotfix/<issue-N>-<kebab> → release/v*；發布分支已刪除時，從同一產品線最大的產品 tag 重建）
+labels: ["type:bug", "production-bug", "hotfix-needed"]
+body:
+  - type: input
+    id: version
+    attributes:
+      label: 受影響的正式版（vX.Y.Z 與單元 tag）
+      placeholder: v{X.Y.Z}（{單元}/v{X.Y.Z}）
+    validations:
+      required: true
+  - type: textarea
+    id: impact
+    attributes:
+      label: 影響與重現
+    validations:
+      required: true
