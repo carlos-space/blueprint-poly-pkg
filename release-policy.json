@@ -1,0 +1,38 @@
+{
+  "$schema": "./schemas/release-policy.schema.json",
+  "product": {
+    "name": "blueprint-poly",
+    "primary": "carlos-space/blueprint-poly-hub"
+  },
+  "access": "public",
+  "scope": "@carlos-space",
+  "units": {
+    "blueprint-poly-sdk": {
+      "kind": "sdk",
+      "stages": [
+        "beta",
+        "ga"
+      ]
+    },
+    "blueprint-poly-sdk-py": {
+      "kind": "sdk",
+      "stages": [
+        "beta",
+        "ga"
+      ]
+    },
+    "blueprint-poly-shared": {
+      "kind": "package",
+      "stages": [
+        "ga"
+      ],
+      "access": "restricted"
+    },
+    "blueprint-poly-pkg-facts": {
+      "kind": "package",
+      "stages": [
+        "ga"
+      ]
+    }
+  }
+}

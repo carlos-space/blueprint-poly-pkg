@@ -1,0 +1,93 @@
+name: nightly
+
+# 與變更無關、或太慢而不該卡在 PR 上的檢查。docs/ci.md 的時機表列了這一層，這支是它的實作。
+# 排程只在預設分支執行；cron 是 UTC，18:00Z 約當台北 02:00。
+on:
+  schedule:
+    - cron: "0 18 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+concurrency:
+  group: nightly
+  cancel-in-progress: false
+
+env:
+  # a loop of a template script asks twice at most and the CI gate asks twice (decision self-hosted-job-no-wait)
+  POLL_TRIES: "2"
+  CI_GATE_TRIES: "2"
+  CI_GATE_QUEUE_TRIES: "0"
+
+jobs:
+  # 白天的 ci 只建置與測試受影響的單元；這裡不縮範圍，抓「單獨看沒問題、湊在一起才壞」的情況。
+  full:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup-workspace
+      - run: pnpm lint
+      - run: pnpm -r build
+      - run: pnpm -r test
+      # 沒有 tests/e2e/ 的倉（沒有 pnpm 單元）沒有端對端測試可跑
+      - if: hashFiles('tests/e2e/*.test.mjs') != ''
+        run: pnpm test:e2e
+
+  # 與程式碼變更無關：新漏洞是後來才公布的，所以要定期重掃而不是只在改相依時掃。
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup-workspace
+      - name: 相依套件弱點掃描
+        run: pnpm audit --audit-level high
+
+  # 不變式的定期核對：發布分支短命，兩次發布之間應為 0 條；殘留代表某次 GA 沒收乾淨。
+  invariants:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      # 這個 job 不 push，但要查遠端分支。git ls-remote 需要憑證，所以不能像其他唯讀 job 那樣
+      # 設 persist-credentials: false，否則會以 could not read Username 失敗。
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: ./.github/actions/setup-workspace
+        with:
+          node: "false"
+      - name: 發布分支與版號狀態
+        run: |
+          fail=0
+          rel=$(git ls-remote --heads origin 'refs/heads/release/*' | wc -l | tr -d ' ')
+          bot=$(git ls-remote --heads origin 'refs/heads/release-please--*' | wc -l | tr -d ' ')
+          if [ "$rel" -gt 1 ]; then echo "::error::有 $rel 條 release 分支，不變式要求任一時刻 ≤ 1"; fail=1
+          else echo "✓ release 分支 $rel 條"; fi
+          if [ "$bot" -gt 0 ] && [ "$rel" -eq 0 ]; then echo "::error::無發布分支卻殘留 $bot 條 release-please 工作分支"; fail=1
+          else echo "✓ release-please 工作分支 $bot 條"; fi
+          # 任一階段（alpha、beta、rc）的版號都帶 "-"，判斷 "-" 而不是某個階段名
+          if jq -e 'any(.[]; test("-"))' .release-please-manifest.json >/dev/null; then echo "::error::main 的 manifest 仍含 prerelease 版號"; fail=1
+          else echo "✓ main manifest 無 prerelease 版號"; fi
+          exit $fail
+      # 本機合併的 hook 可以用 --no-verify 跳過，這裡核對 main 上每個 commit 都符合進 main 的條件
+      # （docs/git-flow.md 的「進入 main」）：不是合併 commit、標題合規、沒有 AI 平台署名。
+      # 跨單元的 Coupled-Change 不在這裡查，因為 release PR 的 squash commit 本來就帶著整班的單元。
+      # 只回報，不改寫歷史。
+      - name: main 的 commit 訊息與形態
+        run: bash scripts/ci/check-main-commits.sh origin/main
+      # 政策檔 release-policy.json 的單元清單要和 release-please-config.json 一致，階段的去處與 dependsOn
+      # 也要對得上。少列一個單元時失敗並列出缺的單元（docs/release-policy.md）。
+      - name: 政策檔與單元清單
+        run: bash scripts/ci/check-release-policy.sh
+      - name: Snapshot
+        run: bash scripts/release/snapshot.sh --check-tags >> "$GITHUB_STEP_SUMMARY"
