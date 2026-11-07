@@ -40,7 +40,7 @@
       "initial-version": "0.1.0-beta.1",
       "versioning": "prerelease",
       "prerelease-type": "beta.1",
-      "prerelease": true
+      "prerelease": false
     },
     "packages/blueprint-poly-sdk-py": {
       "component": "blueprint-poly-sdk-py",
@@ -48,7 +48,7 @@
       "initial-version": "0.1.0-beta.1",
       "versioning": "prerelease",
       "prerelease-type": "beta.1",
-      "prerelease": true
+      "prerelease": false
     },
     "libs/blueprint-poly-shared": {
       "component": "blueprint-poly-shared",
@@ -63,7 +63,7 @@
       "initial-version": "0.1.0-beta.1",
       "versioning": "prerelease",
       "prerelease-type": "beta.1",
-      "prerelease": true
+      "prerelease": false
     }
   }
 }
