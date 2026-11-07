@@ -1,4 +1,4 @@
 {
   "libs/blueprint-poly-shared": "0.1.1",
-  "packages/blueprint-poly-sdk": "0.1.0"
+  "packages/blueprint-poly-sdk": "0.2.0"
 }
