@@ -1,6 +1,0 @@
-0.1.0
-#
-# 由發布腳本在推進階段或 GA 時寫入，用途只有一個：讓帶 Release-As footer 的
-# commit 觸及本單元路徑且非空。發布結束前會被刪除，不會進入預設分支。
-# 理由見 docs/decisions/adr/004-release-engine.md 第 6、33 項。
-# released from release/v0.1 at 2026-11-07T15:58:51Z
