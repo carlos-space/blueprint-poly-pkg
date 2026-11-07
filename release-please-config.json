@@ -34,23 +34,18 @@
     }
   ],
   "packages": {
-    "packages/blueprint-poly-sdk": {
-      "component": "blueprint-poly-sdk",
-      "release-type": "node"
-    },
-    "packages/blueprint-poly-sdk-py": {
-      "component": "blueprint-poly-sdk-py",
-      "release-type": "python"
-    },
     "libs/blueprint-poly-shared": {
       "component": "blueprint-poly-shared",
-      "release-type": "node"
+      "release-type": "node",
+      "versioning": "default"
     },
     "facts": {
       "component": "blueprint-poly-pkg-facts",
       "release-type": "node",
       "changelog-path": "CHANGELOG.md",
-      "initial-version": "0.1.0"
+      "initial-version": "0.1.0",
+      "versioning": "default"
     }
-  }
+  },
+  "last-release-sha": "e73c4f78d2cf78be09f1cc1e3389fb9303851932"
 }
