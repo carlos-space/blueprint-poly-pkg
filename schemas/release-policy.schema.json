@@ -1,0 +1,147 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://raw.githubusercontent.com/carlos-space/git-flow-template/main/schemas/release-policy.schema.json",
+  "title": "release-policy.json",
+  "description": "Fixed release cadence of every release-please unit in a repository, where each stage ships to, and which product the repository belongs to. Explained in docs/release-policy.md.",
+  "type": "object",
+  "required": ["product", "access"],
+  "additionalProperties": false,
+  "allOf": [
+    {
+      "description": "A member repository (product.primary) lists its units.",
+      "if": { "properties": { "product": { "type": "object", "required": ["primary"] } } },
+      "then": { "required": ["units"] }
+    },
+    {
+      "description": "A restricted repository names the npm scope its packages publish under.",
+      "if": { "properties": { "access": { "const": "restricted" } }, "required": ["access"] },
+      "then": { "required": ["scope"] }
+    },
+    {
+      "description": "So does one with any restricted unit. A hub has no units, so only its own access can ask for a scope.",
+      "if": {
+        "required": ["units"],
+        "properties": {
+          "units": {
+            "type": "object",
+            "not": { "additionalProperties": { "not": { "type": "object", "required": ["access"], "properties": { "access": { "const": "restricted" } } } } }
+          }
+        }
+      },
+      "then": { "required": ["scope"] }
+    }
+  ],
+  "properties": {
+    "$schema": { "type": "string" },
+    "product": {
+      "description": "The product whose version sequence this repository shares. The primary repository holds the Release Plans under releases/ and lists the members: the product repository itself for a single-repository product, <product>-hub for one spread over several repositories. A member repository names the primary.",
+      "oneOf": [
+        {
+          "title": "primary",
+          "type": "object",
+          "required": ["name", "members"],
+          "additionalProperties": false,
+          "properties": {
+            "name": { "$ref": "#/definitions/productName" },
+            "members": {
+              "description": "Member repositories as owner/repo. Empty when the product lives in this repository alone.",
+              "type": "array",
+              "uniqueItems": true,
+              "items": { "$ref": "#/definitions/repo" }
+            }
+          }
+        },
+        {
+          "title": "member",
+          "type": "object",
+          "required": ["name", "primary"],
+          "additionalProperties": false,
+          "properties": {
+            "name": { "$ref": "#/definitions/productName" },
+            "primary": { "$ref": "#/definitions/repo" }
+          }
+        }
+      ]
+    },
+    "access": {
+      "description": "Whether what this repository publishes is a non-public package once published: public, or restricted. It says nothing about whether the repository is public, where it publishes, or private: true. A unit's own access overrides it. A hub writes it too.",
+      "$ref": "#/definitions/access"
+    },
+    "scope": {
+      "description": "npm scope of the restricted packages, e.g. \"@carlos-space\". Required when this repository or any unit is restricted.",
+      "type": "string",
+      "pattern": "^@[a-z0-9][a-z0-9._-]*$"
+    },
+    "targets": {
+      "description": "Destination of each stage shared by the service, backend and web units of this repository, e.g. an environment name.",
+      "$ref": "#/definitions/targets"
+    },
+    "units": {
+      "description": "Every unit of release-please-config.json, keyed by its component. A unit missing here, or listed here but not there, fails the daily consistency check. Required in a member repository; a <product>-hub has no units and leaves it out.",
+      "type": "object",
+      "minProperties": 1,
+      "propertyNames": { "pattern": "^[a-z0-9][a-z0-9._-]*$" },
+      "additionalProperties": { "$ref": "#/definitions/unit" }
+    }
+  },
+  "definitions": {
+    "productName": { "type": "string", "pattern": "^[a-z0-9][a-z0-9._-]*$" },
+    "repo": { "type": "string", "pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$" },
+    "access": { "enum": ["public", "restricted"] },
+    "stage": { "enum": ["alpha", "beta", "rc", "ga"] },
+    "targets": {
+      "type": "object",
+      "minProperties": 1,
+      "propertyNames": { "$ref": "#/definitions/stage" },
+      "additionalProperties": { "type": "string", "minLength": 1 }
+    },
+    "unit": {
+      "type": "object",
+      "required": ["kind", "stages"],
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "description": "Release type of the unit. package and sdk publish every stage to their registry; mobile and desktop ship to store channels; service, backend and web deploy to environments.",
+          "enum": ["package", "sdk", "service", "backend", "web", "mobile", "desktop"]
+        },
+        "access": {
+          "description": "Overrides the repository access for this unit. A unit that does not publish fills in what it would be if it did.",
+          "$ref": "#/definitions/access"
+        },
+        "stages": {
+          "description": "Stages the unit walks when it releases on its own, in order and ending at ga. A unit depended on by a unit in a prerelease, and changed in this release, follows that unit's stages instead.",
+          "enum": [
+            ["ga"],
+            ["rc", "ga"],
+            ["beta", "ga"],
+            ["beta", "rc", "ga"],
+            ["alpha", "ga"],
+            ["alpha", "rc", "ga"],
+            ["alpha", "beta", "ga"],
+            ["alpha", "beta", "rc", "ga"]
+          ]
+        },
+        "targets": {
+          "description": "Destination of each stage for this unit, overriding the repository targets. Store channels for mobile and desktop.",
+          "$ref": "#/definitions/targets"
+        },
+        "dependsOn": {
+          "description": "Same-repository units this unit depends on that its package manifest cannot express, e.g. a binding across languages.",
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string", "pattern": "^[a-z0-9][a-z0-9._-]*$" }
+        }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "kind": { "enum": ["mobile", "desktop"] } } },
+          "then": { "required": ["targets"] }
+        },
+        {
+          "if": { "properties": { "kind": { "enum": ["package", "sdk"] } } },
+          "then": { "not": { "required": ["targets"] } }
+        }
+      ]
+    }
+  }
+}

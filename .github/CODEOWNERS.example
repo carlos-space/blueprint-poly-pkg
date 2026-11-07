@@ -1,0 +1,10 @@
+# Changes to versioning and release files need the owner's review. Adjust the paths to the repository's
+# actual version config, CI config and release scripts. The platform only enforces this when "Require
+# review from Code Owners" is on (branch protection or a ruleset); otherwise it just requests a review.
+# Copy to .github/CODEOWNERS and replace {owner}. The pre-push hook (scripts/hooks/pre-push) reads
+# .github/CODEOWNERS too: a push to main that touches one of these paths is refused and goes through a PR.
+# fact: codeowners-enforcement
+/release-please-config*.json   @{owner}
+/.release-please-manifest.json @{owner}
+/.github/workflows/            @{owner}
+/scripts/release/              @{owner}

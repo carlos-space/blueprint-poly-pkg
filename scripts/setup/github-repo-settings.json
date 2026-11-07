@@ -1,0 +1,8 @@
+{
+  "squash": true,
+  "deleteBranchOnMerge": true,
+  "retentionDays": 7,
+  "autoMergeLabel": "auto-merge",
+  "autoMergeLabelColor": "bfdadc",
+  "autoMergeLabelDescription": "必要檢查通過後由 GitHub App 自動合併"
+}

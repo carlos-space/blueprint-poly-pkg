@@ -1,0 +1,38 @@
+#!/usr/bin/env bash
+# Message rules for a commit (docs/git-flow.md, commit 與 PR 訊息格式).
+#   Every branch: no AI-platform attribution. The rule covers every commit and PR, not only main.
+#   On main, where a local squash merge (git merge --squash, then git commit) writes the commit
+#   release-please will read: the subject follows Conventional Commits (condition 2 for entering main),
+#   and a commit whose staged files span two or more release units declares Coupled-Change: in its last
+#   paragraph.
+# Other branches are otherwise free: their commits never reach main, the PR title and body or the squash
+# commit does. git commit --amend on main compares the index with the commit being amended, so units that
+# commit already touched are not counted here; the pre-push hook checks every pushed commit whole.
+# The checks need bash 4 (scripts/lib/common.sh); macOS ships 3.2 as /bin/bash. A branch commit never
+# reaches main, so there an old bash only warns; on main the commit is held back, since an unchecked
+# message there is what release-please reads. This file itself stays bash 3.2 compatible.
+set -euo pipefail
+root="$(git rev-parse --show-toplevel)"
+branch="$(git branch --show-current)"
+if (( BASH_VERSINFO[0] < 4 )); then
+  if [[ "$branch" != main ]]; then
+    printf '%s\n' >&2 "commit-msg：目前的 bash 是 ${BASH_VERSION}，訊息檢查要 bash 4 以上，這次略過。用 brew install bash 安裝新版，並讓 PATH 裡的 bash 指向它。"
+    exit 0
+  fi
+  printf '%s\n' >&2 "commit-msg：沒有提交。main 上的 commit 要用 bash 4 以上檢查訊息，目前是 ${BASH_VERSION}。macOS 內建的 /bin/bash 是 3.2，用 brew install bash 安裝新版，並讓 PATH 裡的 bash 指向它。"
+  exit 1
+fi
+if [[ "$branch" != main ]]; then
+  bash "$root/scripts/ci/check-commit-body.sh" --only attribution --message "$1" >/dev/null || {
+    printf '%s\n' >&2 "commit-msg：commit 訊息不加 AI 平台署名"; exit 1; }
+  exit 0
+fi
+subject="$(grep -v '^#' "$1" | head -n1)"
+bash "$root/scripts/ci/check-pr-title.sh" "$subject" >/dev/null || {
+  printf '%s\n' >&2 "commit-msg：main 上的 commit 訊息要符合 Conventional Commits，release-please 依它計算版號"
+  exit 1
+}
+bash "$root/scripts/ci/check-commit-body.sh" --message "$1" --cached >/dev/null || {
+  printf '%s\n' >&2 "commit-msg：沒有提交。照上面的原因改訊息或拆開變更，不用 --no-verify 跳過"
+  exit 1
+}
