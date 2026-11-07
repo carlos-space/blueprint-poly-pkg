@@ -2,5 +2,5 @@
   "packages/blueprint-poly-sdk-py": "0.1.0",
   "libs/blueprint-poly-shared": "0.1.1",
   "facts": "0.1.0",
-  "packages/blueprint-poly-sdk": "0.2.0-beta.1"
+  "packages/blueprint-poly-sdk": "0.2.0"
 }
