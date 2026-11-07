@@ -1,6 +1,6 @@
 {
   "name": "blueprint-poly-pkg-facts",
-  "version": "0.0.0",
+  "version": "0.1.0-beta.1",
   "description": "Facts for blueprint-poly-pkg: one component per unit",
   "type": "module",
   "repository": {
