@@ -1,6 +1,6 @@
 {
   "name": "blueprint-poly-pkg",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "private": true,
   "description": "blueprint-poly-pkg, a demo repository composed by blueprint",
   "packageManager": "pnpm@12.3.4",
